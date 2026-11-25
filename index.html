@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#fdc202">
+<title>Agente Móvil P2P</title>
+<meta name="description" content="Mueve tu dinero entre tus propias cuentas de cualquier banco o caja del Perú con agentes verificados. Tu dinero queda en custodia hasta que confirmas que llegó.">
+<link rel="icon" href="app/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE confiable, de barrio, sin letra chica
+   IDEA el letrero amarillo de un agente bancario
+   PICTURE el recorrido del dinero: tu banco -> custodia -> agente -> tu otra cuenta
+   COLOUR amarillo de la marca en bandas completas, verde y celeste del logo, tinta casi negra
+   TYPE Archivo 900 + Inter
+   LAYOUT banda amarilla con el recorrido; luego pasos, seguridad, comisión, preguntas, contacto */
+:root{color-scheme:light dark;--bg:light-dark(#fff,#121310);--ink:light-dark(#17150f,#f2efe4);--mute:light-dark(#5d584b,#b4ad9b);--line:light-dark(#e6e2d5,#36342b);--soft:light-dark(#f6f4ec,#1c1d19);--y:#fdc202;--g:#029530;--gd:#027a28;--b:#009df5}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0}html{scroll-padding-top:72px}
+body{background:var(--bg);color:var(--ink);font:17px/1.6 Inter,system-ui,sans-serif;overflow-x:clip}
+h1,h2,h3{font-family:Archivo,Inter,sans-serif;letter-spacing:-.02em;line-height:1.05;margin:0;text-wrap:balance}
+h1{font-size:clamp(34px,5.4vw,56px);font-weight:900}h2{font-size:clamp(28px,3.6vw,40px);font-weight:900}h3{font-size:20px;font-weight:800}
+a{color:inherit}
+.in{max-width:1180px;margin:0 auto;padding:0 max(4vw,16px)}
+header{background:var(--y);color:#17150f;position:sticky;top:0;z-index:5;border-bottom:3px solid #17150f}
+header .in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;flex-wrap:wrap}
+header img{height:38px;width:auto;display:block}
+header nav{display:flex;gap:4px;flex-wrap:wrap}
+header nav a{text-decoration:none;font-weight:700;padding:10px 12px;border-radius:10px;min-height:44px;display:inline-flex;align-items:center}
+header nav a.cta{background:#17150f;color:var(--y)}
+@media(max-width:700px){header nav a:not(.cta){display:none}}
+.hero{background:var(--y);color:#17150f;padding:clamp(28px,5vw,64px) 0 clamp(36px,5vw,72px)}
+.hero .in{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:clamp(24px,4vw,56px);align-items:center}
+@media(max-width:880px){.hero .in{grid-template-columns:minmax(0,1fr)}}
+.hero p{font-size:19px;max-width:34em;margin:16px 0 0}
+.btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:24px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:52px;padding:0 22px;border-radius:14px;font-weight:700;text-decoration:none;background:var(--gd);color:#fff}
+.btn.k{background:#17150f;color:var(--y)}.btn.o{background:transparent;color:#17150f;border:2px solid #17150f}
+.route{background:#17150f;border-radius:24px;padding:clamp(18px,3vw,28px);color:#fff}
+.route ol{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.route li{display:grid;grid-template-columns:52px 1fr;gap:14px;align-items:center;background:#24221b;border-radius:16px;padding:12px 14px}
+.route .n{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;font:900 22px Archivo,sans-serif;color:#17150f}
+.route b{display:block;font:800 17px Archivo,Inter,sans-serif}.route span{color:#d6d1c1;font-size:15px}
+.route .lock{background:var(--y)}.route .g{background:#5fdc8a}.route .bl{background:#7fcbff}
+.band{padding:clamp(40px,6vw,84px) 0}
+.soft{background:var(--soft)}
+.lead{color:var(--mute);max-width:44em;margin:12px 0 0}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:18px;margin-top:28px}
+.box{background:var(--bg);border:1px solid var(--line);border-radius:20px;padding:22px}
+.soft .box{background:var(--bg)}
+.box ol,.box ul{padding-left:20px;margin:12px 0 0}.box li{margin:6px 0}
+.big{font:900 clamp(40px,6vw,64px)/1 Archivo,sans-serif;white-space:nowrap}
+.calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:center;margin-top:28px}
+@media(max-width:760px){.calc{grid-template-columns:minmax(0,1fr)}}
+.calc label{font-weight:700;display:block;margin:0 0 6px}
+.calc input[type=number]{width:100%;font:700 22px Inter;min-height:56px;border:2px solid var(--line);border-radius:14px;padding:8px 14px;background:var(--bg);color:var(--ink)}
+.calc input[type=range]{width:100%;accent-color:var(--gd);min-height:40px}
+.res{background:#17150f;color:#fff;border-radius:20px;padding:22px}
+.res .row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid #36342b}
+.res .row:first-child{border-top:0}
+.res .big{color:var(--y)}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+details{border-top:1px solid var(--line);padding:14px 0}
+summary{font-weight:700;cursor:pointer;min-height:44px;display:flex;align-items:center}
+details p{margin:8px 0 0;color:var(--mute)}
+footer{background:#17150f;color:#d6d1c1;padding:36px 0;font-size:15px}
+footer .in{display:flex;flex-wrap:wrap;gap:16px 32px;justify-content:space-between}
+footer a{color:#fff}
+a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--b);outline-offset:2px}
+</style>
+</head>
+<body>
+<header><div class="in"><a href="#inicio" aria-label="Inicio"><img src="logo.png" alt="Agente Móvil"></a>
+<nav aria-label="Secciones"><a href="#como">Cómo funciona</a><a href="#seguridad">Seguridad</a><a href="#comision">Comisión</a><a href="#agentes">Ser agente</a><a href="#preguntas">Preguntas</a><a class="cta" href="app/">Abrir la app</a></nav></div></header>
+
+<section class="hero" id="inicio"><div class="in">
+  <div>
+    <h1>Mueve tu dinero entre tus cuentas de cualquier banco o caja</h1>
+    <p>¿Tienes tu sueldo en el BCP y necesitas el dinero en tu Caja Trujillo? Un agente verificado con saldo allí te lo transfiere en minutos. Tu dinero queda en custodia hasta que tú confirmas que llegó.</p>
+    <div class="btns"><a class="btn k" href="app/">Crear mi cuenta</a><a class="btn o" href="#como">Ver cómo funciona</a></div>
+  </div>
+  <div class="route" aria-label="Recorrido del dinero">
+    <ol>
+      <li><span class="n bl">1</span><div><b>Publicas tu orden</b><span>Monto, cuenta destino a tu nombre y la comisión que ofreces.</span></div></li>
+      <li><span class="n lock">2</span><div><b>Depositas a la custodia</b><span>De tu BCP al BCP de Agente Móvil. Nadie más puede tocar ese dinero.</span></div></li>
+      <li><span class="n bl">3</span><div><b>Un agente te transfiere</b><span>Desde su cuenta en tu entidad de destino, y sube el voucher.</span></div></li>
+      <li><span class="n g">4</span><div><b>Confirmas que llegó</b><span>Recién ahí liberamos el dinero al agente.</span></div></li>
+    </ol>
+  </div>
+</div></section>
+
+<section class="band" id="como"><div class="in">
+  <h2>Cómo funciona</h2>
+  <p class="lead">Solo mueves dinero entre cuentas a tu nombre. Así nadie puede usar la plataforma para estafar a terceros.</p>
+  <div class="cols">
+    <div class="box"><h3>Para ti como cliente</h3><ol>
+      <li>Regístrate con tu DNI y una selfie. Verificamos tu identidad.</li>
+      <li>Registra tus cuentas: la de BCP desde donde depositas y las de destino.</li>
+      <li>Publica cuánto quieres mover y la comisión. La base es 0.2%.</li>
+      <li>Deposita y sube tu constancia. Validamos y publicamos.</li>
+      <li>Cuando el agente transfiere, tienes 60 minutos para tocar <b>Ya llegó</b>, <b>Aún no llega</b> o <b>El voucher es falso</b>.</li></ol></div>
+    <div class="box"><h3>Si algo falla</h3><ul>
+      <li>Si el agente no transfiere en 20 minutos, el dinero vuelve a tu saldo al instante y puedes publicar otra vez con un toque.</li>
+      <li>Si no respondes a tiempo, nuestro equipo verifica la transferencia con la entidad antes de liberar nada.</li>
+      <li>Si el voucher es falso, recuperas todo y el agente queda bloqueado para siempre.</li></ul></div>
+    <div class="box"><h3>Tu saldo virtual</h3><p style="margin:12px 0 0">Las devoluciones llegan a tu saldo dentro de la app. Úsalo para otra orden o retíralo a cualquiera de tus cuentas cuando quieras.</p></div>
+  </div>
+</div></section>
+
+<section class="band soft" id="seguridad"><div class="in">
+  <h2>Seguridad sin letra chica</h2>
+  <div class="cols">
+    <div class="box"><h3>Identidad verificada</h3><p style="margin:12px 0 0">Clientes y agentes se registran con DNI y selfie. Quien sube un voucher falso, o denuncia uno real para quedarse con el dinero, queda en una lista negra con su DNI y su rostro.</p></div>
+    <div class="box"><h3>Dinero en custodia</h3><p style="margin:12px 0 0">Tu depósito queda en la cuenta recaudadora de la empresa. Solo se libera al agente cuando confirmas o cuando nuestro equipo verifica la operación con la entidad.</p></div>
+    <div class="box"><h3>Personas que responden</h3><p style="margin:12px 0 0">Equipo de soporte en el Perú. Si una entidad tiene caída de sistema, los relojes de tus operaciones se pausan.</p></div>
+  </div>
+</div></section>
+
+<section class="band" id="comision"><div class="in">
+  <h2>Cuánto cuesta</h2>
+  <p class="lead">Tú eliges la comisión desde 0.2% del monto. Si tienes urgencia, súbela: las órdenes con mayor comisión aparecen primero para los agentes.</p>
+  <div class="calc">
+    <div><label for="c-amt">Monto a mover (S/)</label><input id="c-amt" type="number" min="50" max="5000" step="50" value="3000">
+      <label for="c-pct" style="margin-top:18px">Comisión: <span id="c-pctv">0.2%</span></label><input id="c-pct" type="range" min="0.2" max="1" step="0.05" value="0.2">
+      <p class="lead" style="font-size:15px">Límite actual: S/ 5,000 por operación.</p></div>
+    <div class="res"><div class="row"><span>Llega a tu cuenta</span><b class="num" id="c-a">S/ 3,000.00</b></div><div class="row"><span>Comisión</span><b class="num" id="c-f">S/ 6.00</b></div><div class="row"><span>Depositas en total</span></div><div class="big num" id="c-t">S/ 3,006.00</div></div>
+  </div>
+</div></section>
+
+<section class="band soft" id="agentes"><div class="in">
+  <h2>Gana comisiones como agente</h2>
+  <div class="cols">
+    <div class="box"><p style="margin:0">Si tienes saldo en un banco o una caja, transfieres a clientes que necesitan su dinero en esa entidad. Te devolvemos lo que transfieres más el 75% de la comisión en tu saldo, y lo retiras cuando quieras.</p><p><a class="btn" href="app/">Quiero ser agente</a></p></div>
+    <div class="box"><h3>Reglas claras</h3><ul><li>20 minutos para transferir y subir el voucher con su código de operación.</li><li>Si aceptas y no transfieres, sumas un strike. Con 3 pierdes el rol.</li><li>Si el titular de la cuenta destino no coincide, no transfieras: la orden se cancela sin strike.</li><li>Un voucher falso es bloqueo permanente y denuncia.</li></ul></div>
+  </div>
+</div></section>
+
+<section class="band" id="preguntas"><div class="in">
+  <h2>Preguntas frecuentes</h2>
+  <div style="max-width:780px;margin-top:16px">
+    <details><summary>¿Puedo enviar dinero a otra persona?</summary><p>No. Solo entre cuentas a tu nombre. Es la regla que protege a todos de estafas.</p></details>
+    <details><summary>¿Por qué tengo que depositar desde BCP?</summary><p>Porque las transferencias entre cuentas BCP son inmediatas y nos permiten verificar que el titular eres tú.</p></details>
+    <details><summary>¿Qué pasa si no toco ningún botón en 60 minutos?</summary><p>La operación pasa a revisión. Nuestro equipo verifica el código de operación con la entidad. Si la transferencia existe, se libera al agente y no podrás reclamar; si no existe, te devolvemos todo.</p></details>
+    <details><summary>¿Cuánto demora?</summary><p>Depende de que un agente tome tu orden. Subir la comisión la pone más arriba. El agente tiene 20 minutos para transferir una vez que la acepta.</p></details>
+    <details><summary>¿Mis fotos y mi DNI están seguros?</summary><p>Se guardan en almacenamiento privado. Solo el equipo de soporte puede verlas, y solo para verificar tu identidad o resolver un reclamo.</p></details>
+  </div>
+</div></section>
+
+<footer><div class="in">
+  <div><b style="color:#fff">Agente Móvil Perú</b><br>RUC 20XXXXXXXXX · Lima, Perú</div>
+  <div><a href="terminos.html">Términos y condiciones</a><br><a href="privacidad.html">Política de privacidad</a><br><a href="libro-reclamaciones.html">Libro de reclamaciones</a></div>
+  <div><a href="app/">Abrir la app</a></div>
+</div></footer>
+<script>
+{
+  const a = document.getElementById('c-amt'), p = document.getElementById('c-pct');
+  const m = n => 'S/ ' + n.toLocaleString('es-PE', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const up = () => { const v = Math.min(5000, Math.max(0, +a.value || 0)), pc = +p.value, f = Math.round(v * pc) / 100;
+    document.getElementById('c-pctv').textContent = pc.toFixed(2).replace(/0$/, '') + '%';
+    document.getElementById('c-a').textContent = m(v); document.getElementById('c-f').textContent = m(f); document.getElementById('c-t').textContent = m(v + f); };
+  a.addEventListener('input', up); p.addEventListener('input', up); up();
+}
+</script>
+</body>
+</html>

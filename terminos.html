@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Términos y condiciones</title>
+<link rel="icon" href="app/icon-192.png">
+<style>
+:root{color-scheme:light dark;--bg:light-dark(#fff,#121310);--ink:light-dark(#17150f,#f2efe4);--mute:light-dark(#5d584b,#b4ad9b);--y:#fdc202}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16.5px/1.65 Inter,system-ui,sans-serif}
+header{background:var(--y);border-bottom:3px solid #17150f;padding:12px max(4vw,16px)}header img{height:36px;display:block}
+main{max-width:760px;margin:0 auto;padding:24px max(4vw,16px) 60px}
+h1{font:900 32px/1.1 Archivo,Inter,sans-serif;letter-spacing:-.02em;margin:0 0 6px}h2{font-size:19px;margin:28px 0 6px}
+.draft{background:#fff1c2;color:#4a3700;border-radius:12px;padding:12px 14px;margin:14px 0;font-weight:600}
+.mut{color:var(--mute);font-size:14px}li{margin:6px 0}
+</style>
+</head>
+<body>
+<header><a href="index.html"><img src="logo.png" alt="Agente Móvil"></a></header>
+<main>
+<h1>Términos y condiciones</h1>
+<p class="mut">Agente Móvil Perú · RUC 20XXXXXXXXX · Última actualización: [fecha]</p>
+<div class="draft">BORRADOR: este texto debe ser revisado y aprobado por un abogado antes de publicar la plataforma. Los datos entre corchetes deben completarse.</div>
+
+<h2>1. Qué es Agente Móvil</h2>
+<p>Agente Móvil es una plataforma que conecta a personas que necesitan mover su propio dinero entre sus cuentas de distintas entidades financieras del Perú ("clientes") con personas verificadas que tienen saldo en esas entidades y realizan la transferencia a cambio de una comisión ("agentes"). Agente Móvil custodia el dinero del cliente hasta que la operación se completa.</p>
+<h2>2. Registro e identidad</h2>
+<ul><li>Para usar la plataforma debes ser mayor de edad y registrarte con tu DNI, una foto de tu documento y una selfie. Soporte verifica tu identidad antes de habilitarte.</li>
+<li>Solo puedes registrar cuentas bancarias a tu nombre. Está prohibido usar cuentas de terceros.</li>
+<li>Una persona solo puede tener una cuenta. La información falsa causa el bloqueo de la cuenta.</li></ul>
+<h2>3. Cómo funciona una operación</h2>
+<ul><li>El cliente publica una orden indicando el monto, la cuenta destino a su nombre y la comisión que ofrece (mínimo [0.2]% del monto). El límite actual es de S/ [5,000] por operación.</li>
+<li>El cliente deposita el monto más la comisión desde su cuenta [BCP] a nombre propio a la cuenta recaudadora [BCP] de Agente Móvil. Si el depósito proviene de una cuenta de otro titular, se rechaza y se devuelve a su origen.</li>
+<li>Validado el depósito, la orden se publica. Un agente la acepta y tiene [20] minutos para transferir el monto a la cuenta destino y subir el voucher con el código de operación.</li>
+<li>El cliente tiene [60] minutos para indicar "Ya llegó", "Aún no llega" o "El voucher es falso".</li>
+<li>Con "Ya llegó", Agente Móvil acredita al agente el monto transferido más su parte de la comisión en su saldo virtual.</li></ul>
+<h2>4. Si el cliente no responde</h2>
+<p>Si el cliente no responde dentro del plazo, la operación pasa a revisión manual. Soporte verifica el código de operación con la entidad. Si la transferencia existe, se liberan los fondos al agente y <b>el cliente acepta que no podrá reclamar a Agente Móvil por esa operación</b>, pues el dinero ya está en su cuenta. Si la transferencia no existe, se devuelve el dinero al cliente.</p>
+<h2>5. Denuncia de voucher falso</h2>
+<ul><li>Si el cliente denuncia un voucher como falso, los fondos se congelan y soporte audita la operación con la entidad.</li>
+<li>Si el voucher es falso, se devuelve el dinero al cliente y el agente es bloqueado de forma permanente, se registra su DNI y su rostro en una lista de exclusión, y Agente Móvil podrá formular la denuncia penal correspondiente.</li>
+<li>Si la transferencia sí existía, se liberan los fondos al agente y el cliente que denunció falsamente es bloqueado de forma permanente en las mismas condiciones.</li></ul>
+<h2>6. Obligaciones del agente</h2>
+<ul><li>Transferir solo a la cuenta indicada y solo si el titular mostrado por su banca coincide con el nombre del cliente. Si no coincide, debe reportarlo sin transferir.</li>
+<li>Si acepta una orden y no transfiere dentro del plazo, el dinero vuelve al cliente y el agente recibe un strike. Con 1 y 2 strikes queda suspendido [24] horas; con [3] pierde el rol de agente.</li>
+<li>El agente declara que los fondos que usa son de origen lícito y que cumple sus obligaciones tributarias por las comisiones recibidas.</li></ul>
+<h2>7. Comisiones</h2>
+<p>La comisión la fija el cliente desde el mínimo vigente. Se distribuye [75]% para el agente y [25]% para Agente Móvil. El Impuesto a las Transacciones Financieras y las comisiones que cobre cada entidad corren por cuenta de [completar].</p>
+<h2>8. Saldo virtual y retiros</h2>
+<p>Las devoluciones y liquidaciones se acreditan en el saldo virtual del usuario dentro de la plataforma. El saldo no genera intereses. El usuario puede solicitar su retiro a una cuenta propia registrada; soporte lo procesa en el horario de atención [completar].</p>
+<h2>9. Caídas de las entidades</h2>
+<p>Si una entidad financiera reporta caída de servicio, los plazos de las operaciones que dependen de ella se suspenden y se reanudan al restablecerse.</p>
+<h2>10. Prevención de lavado de activos</h2>
+<p>Agente Móvil podrá solicitar información adicional, rechazar o congelar operaciones inusuales o sospechosas, y reportarlas a la Unidad de Inteligencia Financiera conforme a la normativa vigente.</p>
+<h2>11. Reclamos</h2>
+<p>Puedes presentar un reclamo o queja en nuestro <a href="libro-reclamaciones.html">Libro de Reclamaciones virtual</a>. Responderemos en un plazo máximo de 15 días hábiles.</p>
+<h2>12. Ley aplicable</h2>
+<p>Estos términos se rigen por las leyes de la República del Perú. [Completar jurisdicción y datos de contacto.]</p>
+</main>
+</body>
+</html>

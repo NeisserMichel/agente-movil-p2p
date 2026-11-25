@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Libro de Reclamaciones</title>
+<link rel="icon" href="app/icon-192.png">
+<style>
+:root{color-scheme:light dark;--bg:light-dark(#fff,#121310);--ink:light-dark(#17150f,#f2efe4);--mute:light-dark(#5d584b,#b4ad9b);--line:light-dark(#d9d4c6,#3a372d);--y:#fdc202;--gd:#027a28;--bad:light-dark(#9c1b16,#ff8f87)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.55 Inter,system-ui,sans-serif}
+header{background:var(--y);color:#17150f;border-bottom:3px solid #17150f;padding:12px max(4vw,16px)}
+header img{height:36px;display:block}
+main{max-width:760px;margin:0 auto;padding:24px max(4vw,16px) 60px}
+h1{font:900 32px/1.1 Archivo,Inter,sans-serif;letter-spacing:-.02em;margin:0 0 8px}
+h2{font-size:18px;margin:26px 0 4px}
+.mut{color:var(--mute);font-size:14px}
+label{display:block;font-weight:600;font-size:14px;margin:14px 0 6px}
+input,select,textarea{width:100%;font:16px Inter,system-ui,sans-serif;min-height:48px;padding:10px 12px;border:1.5px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink)}
+textarea{min-height:110px}
+.g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:0 14px}
+.btn{width:100%;min-height:52px;border:0;border-radius:14px;background:var(--gd);color:#fff;font:700 16px Inter,sans-serif;margin-top:18px;cursor:pointer}
+.err{color:var(--bad);font-weight:600;min-height:1em}
+.ok{background:light-dark(#dcf3e2,#123520);color:light-dark(#0d6b2a,#5fdc8a);border-radius:14px;padding:16px;margin-top:16px}
+.box{border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:12px;font-size:14px}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #0067b0;outline-offset:2px}
+</style>
+</head>
+<body>
+<header><a href="index.html"><img src="logo.png" alt="Agente Móvil"></a></header>
+<main>
+<h1>Libro de Reclamaciones</h1>
+<p class="mut">Conforme al Código de Protección y Defensa del Consumidor. <b>Agente Móvil Perú</b> · RUC 20XXXXXXXXX · Dirección: [completar].</p>
+<div class="box"><b>Reclamo:</b> disconformidad con el servicio. <b>Queja:</b> disconformidad con la atención, no relacionada al servicio. Responderemos en un plazo máximo de 15 días hábiles al correo que indiques. La formulación del reclamo no impide acudir a otras vías de solución de controversias ni es requisito previo para interponer una denuncia ante el Indecopi.</div>
+<form id="f" novalidate>
+<h2>1. Tus datos</h2>
+<label for="nombre">Nombres y apellidos *</label><input id="nombre" autocomplete="name" required>
+<div class="g2"><div><label for="doc">DNI o carné de extranjería *</label><input id="doc" inputmode="numeric" required></div>
+<div><label for="tel">Teléfono</label><input id="tel" inputmode="tel" autocomplete="tel"></div></div>
+<label for="email">Correo electrónico *</label><input id="email" type="email" autocomplete="email" required>
+<label for="dir">Domicilio</label><input id="dir" autocomplete="street-address">
+<h2>2. Servicio contratado</h2>
+<label for="serv">Servicio o número de operación *</label><input id="serv" placeholder="Ej. Transferencia OP-00012" required>
+<label for="monto">Monto reclamado (S/)</label><input id="monto" type="number" step="0.01" inputmode="decimal">
+<h2>3. Detalle</h2>
+<label for="tipo">Tipo *</label><select id="tipo"><option value="reclamo">Reclamo</option><option value="queja">Queja</option></select>
+<label for="det">Detalle *</label><textarea id="det" required></textarea>
+<label for="ped">Pedido: ¿qué solicitas? *</label><textarea id="ped" required style="min-height:80px"></textarea>
+<p class="err" id="err" role="alert"></p>
+<button class="btn" type="submit" id="send">Enviar</button>
+</form>
+<div id="done" class="ok" hidden></div>
+</main>
+<script src="app/config.js"></script>
+<script>
+{
+  const C = window.AMP_CONFIG || {};
+  const f = document.getElementById('f'), err = document.getElementById('err'), v = id => document.getElementById(id).value.trim();
+  f.addEventListener('submit', async e => {
+    e.preventDefault(); err.textContent = '';
+    if (!v('nombre') || v('doc').length < 8 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v('email')) || !v('serv') || v('det').length < 10 || !v('ped')) { err.textContent = 'Completa los campos marcados con *.'; return; }
+    if (!C.SUPABASE_URL) { err.textContent = 'El formulario aún no está conectado. Escríbenos por WhatsApp o correo.'; return; }
+    const b = document.getElementById('send'); b.disabled = true; b.textContent = 'Enviando…';
+    try {
+      const r = await fetch(C.SUPABASE_URL + '/rest/v1/rpc/submit_complaint', { method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: C.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + C.SUPABASE_ANON_KEY },
+        body: JSON.stringify({ p_kind: v('tipo'), p_full_name: v('nombre'), p_doc: v('doc'), p_address: v('dir'), p_phone: v('tel'), p_email: v('email'),
+          p_amount: v('monto') ? +v('monto') : null, p_service: v('serv'), p_detail: v('det'), p_request: v('ped') }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.message || 'No se pudo enviar.');
+      f.hidden = true; const d = document.getElementById('done'); d.hidden = false;
+      d.textContent = `Registramos tu ${v('tipo')} con el código ${j}. Guárdalo. Te responderemos a ${v('email')} en un máximo de 15 días hábiles.`;
+    } catch (x) { err.textContent = x.message; b.disabled = false; b.textContent = 'Enviar'; }
+  });
+}
+</script>
+</body>
+</html>

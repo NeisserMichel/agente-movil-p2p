@@ -1,0 +1,20 @@
+name: Pruebas de la base de datos
+on:
+  workflow_dispatch:
+  push:
+    paths: ['supabase/**', '.github/workflows/pruebas.yml']
+jobs:
+  sql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Postgres local
+        run: |
+          sudo apt-get install -y -q postgresql >/dev/null
+          PGBIN=$(ls -d /usr/lib/postgresql/*/bin | tail -1)
+          mkdir -p /tmp/pg && sudo chown postgres /tmp/pg
+          sudo -u postgres $PGBIN/initdb -D /tmp/pg/data -A trust >/dev/null
+          sudo -u postgres $PGBIN/pg_ctl -D /tmp/pg/data -o "-k /tmp/pg -p 5544" -l /tmp/pg/log start
+          pip install -q psycopg2-binary
+      - name: Flujos de dinero
+        run: sh supabase/tests/correr.sh
