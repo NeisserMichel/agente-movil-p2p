@@ -10,7 +10,7 @@
 :root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
 *{box-sizing:border-box;min-width:0}html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font:16.5px/1.65 Inter,system-ui,sans-serif}
-header{background:var(--y);border-bottom:3px solid #17150f;padding:12px max(4vw,16px)}header img{height:36px;display:block}
+header{background:var(--y);border-bottom:3px solid #17150f;padding:12px max(4vw,16px)}header img{height:36px;display:block}header a{display:flex;align-items:center;gap:6px;text-decoration:none}.p2p{font:900 22px/1 Archivo,Inter,sans-serif;color:#009df5;text-shadow:-1.5px 0 #fff,1.5px 0 #fff,0 -1.5px #fff,0 1.5px #fff}
 main{max-width:760px;margin:0 auto;padding:24px max(4vw,16px) 60px}
 h1{font:900 32px/1.1 Archivo,Inter,sans-serif;letter-spacing:-.02em;margin:0 0 6px}h2{font-size:19px;margin:28px 0 6px}
 .draft{background:#fff1c2;color:#4a3700;border-radius:12px;padding:12px 14px;margin:14px 0;font-weight:600}
@@ -18,7 +18,7 @@ h1{font:900 32px/1.1 Archivo,Inter,sans-serif;letter-spacing:-.02em;margin:0 0 6
 </style>
 </head>
 <body>
-<header><a href="index.html"><img src="logo.png" alt="Agente Móvil"></a></header>
+<header><a href="index.html" aria-label="Agente Móvil P2P"><img src="logo.png" alt=""><span class="p2p" aria-hidden="true">P2P</span></a></header>
 <main>
 <h1>Términos y condiciones</h1>
 <p class="mut">Agente Móvil Perú · RUC 20XXXXXXXXX · Última actualización: [fecha]</p>

@@ -21,16 +21,21 @@ def page(ctx, who):
     p.goto(BASE); return p
 
 def shot(p, name): p.screenshot(path=f'{OUT}/{name}.png', full_page=True)
-def click(p, text, nth=0): p.get_by_role('button', name=text).nth(nth).click(); p.wait_for_timeout(350)
+def click(p, text, nth=0): p.get_by_role('button', name=text, exact=True).nth(nth).click(); p.wait_for_timeout(350)
 def tab(p, name): p.locator('.nav button', has_text=name).click(); p.wait_for_timeout(300)
 
-def register(p, name, dni, phone, dept, email):
+def register(p, name, dni, phone, dept, email, rol='Cliente'):
     p.get_by_role('tab', name='Crear cuenta').click(); p.wait_for_timeout(300)
+    p.locator('.pick button', has_text=rol).click(); p.wait_for_timeout(200)
     p.fill('#r-name', name); p.fill('#r-dni', dni); p.fill('#r-phone', phone); p.select_option('#r-dept', dept)
     p.fill('#r-email', email); p.fill('#r-pass', 'clave-segura-1'); p.check('#r-tc')
-    click(p, 'Crear mi cuenta'); p.wait_for_timeout(600)
+    p.locator('[data-act=eye][data-for=r-pass]').click()
+    assert p.get_attribute('#r-pass', 'type') == 'text', 'el ojo debe mostrar la contraseña'
+    p.locator('[data-act=register]').click(); p.wait_for_timeout(700)
+    expect(p.get_by_text('Tu cuenta aún no está verificada.')).to_be_visible()
 
 def kyc(p):
+    click(p, 'Verificar mi identidad')
     p.set_input_files('#k-doc', f'{OUT}/dni.jpg'); p.set_input_files('#k-self', f'{OUT}/selfie.jpg')
     click(p, 'Enviar para verificación'); p.wait_for_timeout(800)
     expect(p.get_by_text('Estamos revisando tu identidad')).to_be_visible()
@@ -45,23 +50,25 @@ with sync_playwright() as pw:
 
     # Registro e identidad
     register(cli, 'Luis Chávez Ramos', '45871203', '987654321', 'Cajamarca', 'luis@prueba.pe'); kyc(cli)
-    register(age, 'Carmen Huamán Torres', '41290578', '912345678', 'Arequipa', 'carmen@prueba.pe'); kyc(age)
+    register(age, 'Carmen Huamán Torres', '41290578', '912345678', 'Arequipa', 'carmen@prueba.pe', 'Agente'); kyc(age)
+    nue = page(br.new_context(**phone), 'agente-sin-fotos')
+    register(nue, 'Pedro Vargas Ruiz', '42223333', '955555555', 'Piura', 'pedro@prueba.pe', 'Agente')
+    shot(nue, '00-sin-verificar')
     register(adm, 'Neisser Calla Delgado', '11112222', '917486188', 'Lima', 'admin@prueba.pe')
     sqlx("update public.profiles set role='admin', kyc_status='aprobado' where email='admin@prueba.pe'")
     adm.reload(); adm.wait_for_timeout(800)
-    tab(adm, 'Soporte'); adm.get_by_role('tab', name='Ajustes').click(); adm.wait_for_timeout(300)
-    adm.fill('#cfg-company_account', '193-2458871-0-41'); click(adm, 'Guardar ajustes'); adm.wait_for_timeout(400); adm.get_by_role('tab', name='Identidad (2)').click(); adm.wait_for_timeout(500)
+    tab(adm, 'Soporte'); shot(adm, '02a-soporte-inicio'); adm.get_by_role('tab', name='Ajustes').click(); adm.wait_for_timeout(300)
+    adm.fill('#cfg-company_account', '193-2458871-0-41'); click(adm, 'Guardar ajustes'); adm.wait_for_timeout(400); adm.get_by_role('tab', name='Verificaciones (3)').click(); adm.wait_for_timeout(500)
     shot(adm, '02-soporte-identidad')
-    click(adm, 'Aprobar identidad'); click(adm, 'Aprobar identidad')
+    click(adm, 'Confirmar verificación', 0); click(adm, 'Confirmar verificación y activar agente', 0)
 
     # Cuentas y agente
     for p, accs in [(cli, [('BCP', '245-1877-4410'), ('Caja Trujillo', '0071-3302-781')]), (age, [('Caja Trujillo', '0033-1290-417'), ('BCP', '215-4410-9928')])]:
-        click(p, 'Actualizar'); tab(p, 'Cuenta')
+        p.reload(); p.wait_for_timeout(800); tab(p, 'Cuenta')
         for e, n in accs:
             p.select_option('#a-ent', e); p.fill('#a-num', n); click(p, 'Agregar cuenta'); p.wait_for_timeout(300)
     shot(cli, '03-cuenta')
-    tab(age, 'Agente'); click(age, 'Quiero ser agente')
-    tab(adm, 'Soporte'); click(adm, 'Actualizar'); adm.get_by_role('tab', name='Agentes').click(); adm.wait_for_timeout(300); click(adm, 'Activar')
+    expect(age.get_by_text('Cliente y agente')).to_be_visible()
 
     # Cliente crea la orden y deposita
     tab(cli, 'Inicio'); click(cli, 'Mover mi dinero')
@@ -79,8 +86,19 @@ with sync_playwright() as pw:
     shot(adm, '06-soporte-deposito')
     click(adm, 'Llegó y el titular coincide: publicar'); click(adm, 'Sí, publicar'); adm.wait_for_timeout(500)
 
+    # Cliente y agente sin verificar ven la orden publicada; el no verificado no puede aceptarla
+    nue.reload(); nue.wait_for_timeout(800); tab(nue, 'Órdenes'); shot(nue, '06b-sin-verificar-ve-ordenes')
+    expect(nue.locator('.oc').first).to_contain_text('3,000.00')
+    expect(nue.get_by_text('Solo los agentes verificados pueden aceptarlas.')).to_be_visible()
+    assert nue.get_by_role('button', name='Aceptar orden').count() == 0
+    click(adm, 'Actualizar'); adm.get_by_role('tab', name='Verificaciones (1)').click(); adm.wait_for_timeout(300)
+    adm.locator('input[id^=kn-]').fill('Verificado por videollamada con su DNI'); click(adm, 'Confirmar verificación y activar agente')
+    nue.reload(); nue.wait_for_timeout(800); tab(nue, 'Órdenes')
+    expect(nue.get_by_role('button', name='Necesitas cuenta en Caja Trujillo').first).to_be_disabled()
+    cli.reload(); cli.wait_for_timeout(700); tab(cli, 'Órdenes'); expect(cli.get_by_text('Tu orden').first).to_be_visible()
+
     # Agente toma la orden y sube el voucher
-    age.reload(); age.wait_for_timeout(800); tab(age, 'Agente')
+    age.reload(); age.wait_for_timeout(800); tab(age, 'Órdenes')
     shot(age, '07-mercado')
     age.locator('.hot').get_by_role('button', name='Aceptar orden').first.click(); age.wait_for_timeout(700)
     expect(age.get_by_text('Luis Chávez Ramos')).to_be_visible()
@@ -89,7 +107,7 @@ with sync_playwright() as pw:
     click(age, 'Enviar comprobante'); age.wait_for_timeout(600)
 
     # Cliente confirma
-    cli.reload(); cli.wait_for_timeout(800); cli.locator('.it', has_text='Caja Trujillo').first.click(); cli.wait_for_timeout(800)
+    cli.reload(); cli.wait_for_timeout(800); tab(cli, 'Inicio'); cli.locator('.it', has_text='Caja Trujillo').first.click(); cli.wait_for_timeout(800)
     shot(cli, '09-confirmar')
     expect(cli.locator('img.proof')).to_have_attribute('src', lambda s: True) if False else None
     click(cli, 'Ya llegó a mi cuenta'); cli.wait_for_timeout(600)
@@ -108,9 +126,9 @@ with sync_playwright() as pw:
     tab(cli, 'Inicio'); click(cli, 'Mover mi dinero'); cli.select_option('#d-fund', 'deposito'); cli.fill('#d-amt', '500'); click(cli, 'Continuar'); cli.wait_for_timeout(500)
     cli.fill('#dp-code', '11223344'); cli.set_input_files('#dp-file', f'{OUT}/voucher.jpg'); click(cli, 'Ya transferí'); cli.wait_for_timeout(500)
     click(adm, 'Actualizar'); adm.get_by_role('tab', name='Depósitos (1)').click(); click(adm, 'Llegó y el titular coincide: publicar'); click(adm, 'Sí, publicar')
-    age.reload(); age.wait_for_timeout(700); tab(age, 'Agente'); age.locator('.hot').get_by_role('button', name='Aceptar orden').first.click(); age.wait_for_timeout(600)
+    age.reload(); age.wait_for_timeout(700); tab(age, 'Órdenes'); age.locator('.hot').get_by_role('button', name='Aceptar orden').first.click(); age.wait_for_timeout(600)
     age.fill('#v-code', '55556666'); age.set_input_files('#v-file', f'{OUT}/voucher.jpg'); click(age, 'Enviar comprobante')
-    cli.reload(); cli.wait_for_timeout(800); cli.locator('.it', has_text='S/ 500.00').first.click(); cli.wait_for_timeout(600)
+    cli.reload(); cli.wait_for_timeout(800); tab(cli, 'Inicio'); cli.locator('.it', has_text='S/ 500.00').first.click(); cli.wait_for_timeout(600)
     click(cli, 'El voucher es falso'); shot(cli, '12-advertencia')
     click(cli, 'Sí, estoy seguro. Iniciar auditoría'); cli.wait_for_timeout(500)
     click(adm, 'Actualizar'); adm.get_by_role('tab', name='Casos (1)').click(); adm.wait_for_timeout(500)

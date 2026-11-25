@@ -37,10 +37,10 @@ def eq(a, b, what):
     global ok_n
     assert a == b, f'{what}: {a!r} != {b!r}'; ok_n += 1
 
-def user(email, name, dni, dept='Lima'):
+def user(email, name, dni, dept='Lima', rol='cliente'):
     uid = uuid.uuid4()
-    q("insert into auth.users (id,email,raw_user_meta_data) values (%s,%s,json_build_object('full_name',%s::text,'dni',%s::text,'dept',%s::text,'phone','999'))",
-      (str(uid), email, name, dni, dept))
+    q("insert into auth.users (id,email,raw_user_meta_data) values (%s,%s,json_build_object('full_name',%s::text,'dni',%s::text,'dept',%s::text,'phone','999','rol',%s::text))",
+      (str(uid), email, name, dni, dept, rol))
     return uid
 
 def kyc(uid, name, dni):
@@ -88,7 +88,7 @@ fails("select public.create_order(%s, 1000, 0.1, 'deposito')", (c_ct,), C, 'comi
 fails("select public.create_order(%s, 1000, 0.2, 'deposito')", (g_ct,), C, 'tus cuentas')
 
 # ---------- agentes ----------
-fails("select * from public.list_market()", who=G, contains='Solo agentes')
+eq(q("select count(*) from public.list_market()", who=G)[0][0], 0, 'cualquier usuario puede ver el mercado (vacío)')
 for u in (G, H): one("select public.request_agent()", who=u); one("select public.review_agent(%s,true)", (str(u),), ADM)
 
 # ---------- 1. flujo feliz ----------
@@ -103,7 +103,16 @@ eq(len(q("select * from public.list_market()", who=G)), 0, 'no publicada antes d
 one("select public.review_deposit(%s,true,null)", (o1,), ADM)
 m = q("select id, amount, agent_fee, has_account from public.list_market()", who=G)
 eq((m[0][0], m[0][1], m[0][2], m[0][3]), (o1, D('3000.00'), D('11.25'), True), 'mercado muestra la orden con ganancia del agente')
-fails("select * from public.list_market()", who=C, contains='Solo agentes')
+eq(q("select is_mine from public.list_market() where id=%s", (o1,), C)[0][0], True, 'el cliente ve su propia orden publicada')
+# agente que se registró como agente pero aún no está verificado: ve la orden, no puede aceptarla
+NV = user('nuevo@x.pe', 'Nuevo Agente Tres', '43334444', 'Lima', 'agente')
+eq(one("select agent_status from public.profiles where id=%s", (NV,)), 'solicitado', 'registro como agente queda solicitado')
+eq(len(q("select * from public.list_market()", who=NV)), 1, 'usuario sin verificar ve las órdenes publicadas')
+fails("select public.accept_order(%s)", (o1,), NV, 'verificamos tu identidad')
+fails("select public.review_agent(%s,true)", (str(NV),), ADM, 'confirma la identidad')
+one("select public.review_kyc(%s,true,'Verificado por videollamada')", (str(NV),), ADM)
+eq(one("select agent_status||'/'||kyc_status from public.profiles where id=%s", (NV,)), 'activo/aprobado', 'confirmar verificación activa al agente aunque no haya subido fotos')
+fails("select public.accept_order(%s)", (o1,), NV, 'cuenta en Caja Trujillo')
 fails("select public.accept_order(%s)", (o1,), C, 'agente')
 eq(len(q("select dest_number from public.orders where id=%s", (o1,), G)), 0, 'agente no ve la cuenta antes de aceptar')
 one("select public.accept_order(%s)", (o1,), G)

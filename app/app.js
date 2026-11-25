@@ -30,7 +30,10 @@ const IC = {
   send: '<path d="M4 12h15M13 6l6 6-6 6"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   warn: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
-  back: '<path d="M15 6l-6 6 6 6"/>'
+  back: '<path d="M15 6l-6 6 6 6"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  eyeoff: '<path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.2M6.6 6.6C3.9 8.4 2 12 2 12s3.5 7 10 7a9.6 9.6 0 0 0 4.4-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>'
 };
 const ic = n => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${IC[n]}</svg>`;
 
@@ -49,7 +52,7 @@ const api = window.AMP_TEST_API || {
   async session() { const { data } = await sb.auth.getSession(); return data.session?.user || null; },
   async signUp(v) {
     const { data, error } = await sb.auth.signUp({ email: v.email, password: v.password,
-      options: { data: { full_name: v.full_name, dni: v.dni, phone: v.phone, dept: v.dept }, emailRedirectTo: location.href.split('#')[0] } });
+      options: { data: { full_name: v.full_name, dni: v.dni, phone: v.phone, dept: v.dept, rol: v.rol }, emailRedirectTo: location.href.split('#')[0] } });
     if (error) throw error; return !!data.session;
   },
   async signIn(e, p) { const { error } = await sb.auth.signInWithPassword({ email: e, password: p }); if (error) throw error; },
@@ -103,11 +106,14 @@ async function compress(file) {
 /* ======================= ESTADO ======================= */
 const S = {
   user: null, me: null, cfg: null, ents: [], accs: [], mine: [], asAgent: [], market: [], notes: [], ledger: [], wds: [],
-  tab: 'home', view: null, auth: 'login', sheet: null, off: 0, agF: 'top', agSub: null, staffTab: 'depositos', st: {}, draft: null, busy: false
+  tab: 'home', view: null, auth: 'login', regRole: 'cliente', sheet: null, off: 0, agF: 'top', agSub: null, staffTab: 'depositos', st: {}, draft: null, busy: false
 };
 const meId = () => S.me?.id;
 const isStaff = () => S.me && ['soporte','admin'].includes(S.me.role);
 const isAgent = () => S.me?.agent_status === 'activo';
+const verified = () => S.me?.kyc_status === 'aprobado';
+const pwField = (id, ac) => `<div class="pw"><input id="${id}" type="password" autocomplete="${ac}"><button type="button" class="eye" data-act="eye" data-for="${id}" aria-label="Mostrar contraseña" aria-pressed="false">${ic('eye')}</button></div>`;
+const brand = () => `<span class="brand"><img src="logo.png" alt="Agente Móvil"><span class="p2p">P2P</span></span>`;
 const now = () => Date.now() + S.off;
 
 async function loadAll() {
@@ -129,7 +135,7 @@ async function loadAll() {
   ];
   [S.ents, S.accs, S.mine, S.asAgent, S.notes, S.ledger, S.wds] = await Promise.all(tasks.slice(0, 7));
   S.off = new Date(await tasks[7]).getTime() - Date.now();
-  if (isAgent()) S.market = await api.rpc('list_market').catch(() => []);
+  S.market = await api.rpc('list_market').catch(() => []);
   if (isStaff()) await loadStaff();
 }
 async function loadStaff() {
@@ -138,7 +144,7 @@ async function loadStaff() {
     api.select('orders', q => q.eq('status', 'deposito_revision').order('created_at')),
     api.select('cases', q => q.order('created_at', { ascending: false }).limit(60)),
     api.select('withdrawals', q => q.eq('status', 'pendiente').order('created_at')),
-    api.select('profiles', q => q.eq('kyc_status', 'en_revision').order('created_at')),
+    api.select('profiles', q => q.in('kyc_status', ['en_revision','pendiente']).eq('banned', false).order('created_at')),
     api.select('profiles', q => q.neq('agent_status', 'no').order('created_at', { ascending: false }).limit(100)),
     api.select('bank_accounts', q => q.not('flagged', 'is', null)),
     api.select('orders', q => q.order('created_at', { ascending: false }).limit(80)),
@@ -212,7 +218,7 @@ function vAuth() {
   const a = S.auth;
   const form = a === 'login' ? `
     <label class="f" for="l-email">Correo</label><input id="l-email" type="email" autocomplete="email" inputmode="email">
-    <label class="f" for="l-pass">Contraseña</label><input id="l-pass" type="password" autocomplete="current-password">
+    <label class="f" for="l-pass">Contraseña</label>${pwField('l-pass','current-password')}
     <p class="err" id="l-err"></p>
     <button class="btn" data-act="login">Ingresar</button>
     <button class="lnk" data-act="auth" data-v="forgot">Olvidé mi contraseña</button>`
@@ -224,19 +230,25 @@ function vAuth() {
     <button class="lnk" data-act="auth" data-v="login">Volver a ingresar</button>`
   : a === 'newpass' ? `
     <h2>Crea tu contraseña nueva</h2>
-    <label class="f" for="n-pass">Contraseña nueva (mínimo 8)</label><input id="n-pass" type="password" autocomplete="new-password">
+    <label class="f" for="n-pass">Contraseña nueva (mínimo 8)</label>${pwField('n-pass','new-password')}
     <p class="err" id="n-err"></p><button class="btn" data-act="newpass">Guardar</button>`
   : `
+    <p class="f" style="font-weight:600;font-size:14px;margin:14px 0 0">¿Cómo quieres usar Agente Móvil?</p>
+    <div class="pick" role="group" aria-label="Tipo de cuenta">
+      <button type="button" data-act="regrole" data-v="cliente" aria-pressed="${S.regRole === 'cliente'}"><b>Cliente</b><span>Muevo mi dinero entre mis cuentas</span></button>
+      <button type="button" data-act="regrole" data-v="agente" aria-pressed="${S.regRole === 'agente'}"><b>Agente</b><span>Transfiero con mi saldo y gano comisiones</span></button>
+    </div>
+    ${S.regRole === 'agente' ? '<p class="mut" style="margin:8px 0 0">Podrás ver las órdenes apenas entres. Para aceptarlas, soporte debe verificar tu identidad.</p>' : ''}
     <label class="f" for="r-name">Nombres y apellidos (como en tu DNI)</label><input id="r-name" autocomplete="name">
     <div class="grid2"><div><label class="f" for="r-dni">DNI</label><input id="r-dni" inputmode="numeric" maxlength="8"></div>
     <div><label class="f" for="r-phone">Celular</label><input id="r-phone" inputmode="tel" maxlength="9" autocomplete="tel"></div></div>
     <label class="f" for="r-dept">Departamento</label><select id="r-dept"><option value="">Elige…</option>${DEPTS.map(d => `<option>${d}</option>`).join('')}</select>
     <label class="f" for="r-email">Correo</label><input id="r-email" type="email" autocomplete="email">
-    <label class="f" for="r-pass">Contraseña (mínimo 8)</label><input id="r-pass" type="password" autocomplete="new-password">
+    <label class="f" for="r-pass">Contraseña (mínimo 8)</label>${pwField('r-pass','new-password')}
     <label class="chk"><input type="checkbox" id="r-tc"><span>Acepto los <a href="../terminos.html" target="_blank" rel="noopener">Términos y condiciones</a> y la <a href="../privacidad.html" target="_blank" rel="noopener">Política de privacidad</a>. Entiendo que solo puedo mover dinero entre cuentas a mi nombre.</span></label>
     <p class="err" id="r-err"></p>
-    <button class="btn" data-act="register">Crear mi cuenta</button>`;
-  return `<div class="hero"><img src="logo.png" alt="Agente Móvil"><p>Mueve tu dinero entre tus cuentas de cualquier banco o caja del Perú, con agentes verificados.</p></div>
+    <button class="btn" data-act="register">${S.regRole === 'agente' ? 'Crear mi cuenta de agente' : 'Crear mi cuenta'}</button>`;
+  return `<div class="hero">${brand()}<p>Mueve tu dinero entre tus cuentas de cualquier banco o caja del Perú, con agentes verificados.</p></div>
   <div class="wrap" style="margin-top:-50px;padding-bottom:40px"><div class="card">
   ${a === 'login' || a === 'register' ? `<div class="seg" role="tablist"><button role="tab" aria-selected="${a === 'login'}" data-act="auth" data-v="login">Ingresar</button><button role="tab" aria-selected="${a === 'register'}" data-act="auth" data-v="register">Crear cuenta</button></div>` : ''}
   ${form}</div></div>`;
@@ -249,13 +261,19 @@ function vBlocked() {
   <p class="mut">Tu DNI y tu rostro quedaron en la lista negra de Agente Móvil. Si tienes saldo, soporte se comunicará contigo para devolvértelo.</p>
   <button class="btn o" data-act="logout">Cerrar sesión</button></div></div>`;
 }
+function verifyBanner() {
+  const m = S.me; if (verified() || isStaff()) return '';
+  if (m.kyc_status === 'en_revision') return `<div class="alert a-info"><b>Estamos revisando tu identidad.</b> Mientras tanto puedes ver la app, pero no realizar operaciones.</div>`;
+  return `<div class="alert a-warn"><b>Tu cuenta aún no está verificada.</b> Puedes ver la app y las órdenes publicadas, pero no realizar operaciones.${m.kyc_status === 'rechazado' ? ' Tu verificación anterior fue rechazada.' : ''}
+    <button class="btn y" style="margin-top:8px" data-act="kycview">Verificar mi identidad</button></div>`;
+}
 function vKyc() {
   const m = S.me;
-  if (m.kyc_status === 'en_revision') return `<div class="wrap"><div class="card"><h1>Estamos revisando tu identidad</h1>
+  if (m.kyc_status === 'en_revision') return `${back(S.tab)}<div class="card"><h1>Estamos revisando tu identidad</h1>
     <p>Soporte compara la foto de tu DNI con tu selfie. Normalmente toma menos de un día hábil. Te llegará un aviso.</p>
     <p class="mut">DNI ${mask(m.dni)} · ${esc(m.full_name)}</p>
-    <button class="btn o" data-act="refresh">Actualizar</button><button class="lnk" data-act="logout">Cerrar sesión</button></div></div>`;
-  return `<div class="wrap"><div class="card"><h1>Verifica tu identidad</h1>
+    <button class="btn o" data-act="refresh">Actualizar</button></div>`;
+  return `${back(S.tab)}<div class="card"><h1>Verifica tu identidad</h1>
   <p class="mut">Es obligatorio para clientes y agentes. Así nadie puede usar tu nombre ni mover dinero de terceros.</p>
   ${m.kyc_status === 'rechazado' ? `<div class="alert a-bad"><b>Tu verificación fue rechazada.</b> ${esc(m.kyc_note || 'Sube fotos más claras.')}</div>` : ''}
   <label class="f" for="k-name">Nombres y apellidos completos</label><input id="k-name" value="${esc(m.full_name)}">
@@ -264,8 +282,7 @@ function vKyc() {
   <label class="f" for="k-self">Selfie sosteniendo tu DNI junto a tu cara</label><input id="k-self" type="file" accept="image/*" capture="user">
   <p class="mut">Las fotos se guardan cifradas y solo las ve el equipo de soporte.</p>
   <p class="err" id="k-err"></p>
-  <button class="btn" data-act="kyc">Enviar para verificación</button>
-  <button class="lnk" data-act="logout">Cerrar sesión</button></div></div>`;
+  <button class="btn" data-act="kyc">Enviar para verificación</button></div>`;
 }
 
 /* ======================= PANTALLAS: CLIENTE ======================= */
@@ -276,9 +293,10 @@ function oRow(o, act) {
 }
 function vHome() {
   const live = S.mine.filter(o => LIVE.includes(o.status)), past = S.mine.filter(o => !LIVE.includes(o.status));
-  return `<h1>Hola, ${esc(S.me.full_name.split(' ')[0])}</h1>
+  return `<h1>Hola, ${esc(S.me.full_name.split(' ')[0])}</h1>${verifyBanner()}
   <div class="card dark"><span class="mut">Saldo virtual</span><div class="big num">${money(S.me.wallet)}</div><span class="mut">Tu dinero dentro de Agente Móvil. Úsalo para otro envío o retíralo.</span></div>
   <button class="btn" data-act="new">${ic('send')} Mover mi dinero</button>
+  ${S.market.filter(o => !o.is_mine).length ? `<button class="it card" style="display:grid" data-act="tab" data-v="agent"><b>${S.market.filter(o => !o.is_mine).length} órdenes publicadas en el Perú</b><span>Ver →</span><span class="mut" style="grid-column:1/-1">Mira lo que otros usuarios están moviendo ahora.</span></button>` : ''}
   ${live.length ? `<h2 class="sec">En curso</h2><div class="card"><div class="list">${live.map(o => oRow(o, 'open')).join('')}</div></div>` : ''}
   <h2 class="sec">Historial</h2>${past.length ? `<div class="card"><div class="list">${past.slice(0, 20).map(o => oRow(o, 'open')).join('')}</div></div>` : '<p class="empty">Aún no tienes operaciones terminadas.</p>'}`;
 }
@@ -356,39 +374,42 @@ function vOrder(o) {
 
 /* ======================= PANTALLAS: AGENTE ======================= */
 function oCard(o, can) {
+  let act;
+  if (o.is_mine) act = `<span class="tag t-info">Tu orden</span>`;
+  else if (!isAgent()) act = '';
+  else act = `<button class="btn ${o.has_account ? '' : 'o'}" data-act="take" data-id="${o.id}" ${can && o.has_account ? '' : 'disabled'}>${o.has_account ? 'Aceptar orden' : 'Necesitas cuenta en ' + esc(o.dest_entity)}</button>`;
   return `<div class="oc"><div class="row"><b style="font:800 17px Archivo,Inter,sans-serif">${esc(o.dest_entity)}</b><span class="pct">${pctS(o.pct)}</span></div>
   <div class="am num">${money(o.amount)}</div>
   <div class="mut">${esc(o.client_short)}${o.client_dept ? ' · ' + esc(o.client_dept) : ''} · publicada ${hm(o.published_at)}</div>
-  <div class="row" style="margin-top:6px"><span>Ganas <b class="num">${money(o.agent_fee)}</b></span>${o.has_account ? '<span class="tag t-ok">Tienes cuenta aquí</span>' : '<span class="tag t-mute">Sin cuenta aquí</span>'}</div>
-  <button class="btn ${o.has_account ? '' : 'o'}" data-act="take" data-id="${o.id}" ${can && o.has_account ? '' : 'disabled'}>Aceptar orden</button></div>`;
+  <div class="row" style="margin-top:6px"><span>El agente gana <b class="num">${money(o.agent_fee)}</b></span>${isAgent() && !o.is_mine ? (o.has_account ? '<span class="tag t-ok">Tienes cuenta aquí</span>' : '<span class="tag t-mute">Sin cuenta aquí</span>') : ''}</div>
+  ${act}</div>`;
 }
 function vAgent() {
-  const m = S.me;
-  if (!isAgent()) {
-    if (m.agent_status === 'solicitado') return `<h1>Ser agente</h1><div class="alert a-info">Tu solicitud está en revisión. Te avisaremos.</div>`;
-    if (m.agent_status === 'retirado') return `<h1>Ser agente</h1><div class="alert a-bad">Perdiste el rol de agente por acumular ${S.cfg.strikes_max} strikes. Puedes seguir usando la app como cliente.</div>`;
-    return `<h1>Gana comisiones como agente</h1>
-    <div class="card"><p style="margin-top:0">Si tienes saldo en un banco o caja, puedes transferir a clientes que necesitan mover su dinero a esa entidad. Te devolvemos lo que transfieres más el ${Math.round(S.cfg.agent_share * 100)}% de la comisión.</p>
-    <ul class="mut" style="padding-left:18px"><li>Tienes ${S.cfg.agent_minutes} minutos para transferir y subir el voucher.</li><li>Si aceptas y no transfieres, sumas un strike. Con ${S.cfg.strikes_max} pierdes el rol.</li><li>Un voucher falso es bloqueo permanente y denuncia.</li></ul>
-    <button class="btn" data-act="beagent">Quiero ser agente</button></div>`;
-  }
-  const cur = S.asAgent.find(o => o.status === 'aceptada' || o.status === 'confirmacion' || o.status === 'revision');
+  const m = S.me, c = S.cfg;
+  const cur = S.asAgent.find(o => ['aceptada','confirmacion','revision'].includes(o.status));
   const susp = m.suspended_until && new Date(m.suspended_until).getTime() > now();
-  const can = !S.asAgent.some(o => o.status === 'aceptada') && !susp;
-  let head = '';
-  if (cur) head = `<button class="it card" style="display:grid" data-act="aopen" data-id="${cur.id}"><b>Orden en curso: ${esc(cur.code)}</b><span class="tag ${ST[cur.status][1]}">${ST[cur.status][0]}</span><span class="mut">${esc(cur.dest_entity)} · ${money(cur.amount)}</span><span>Abrir →</span></button>`;
-  if (susp) head += `<div class="alert a-bad"><b>Suspendido por strike ${m.strikes}/${S.cfg.strikes_max}.</b> Vuelves a tomar órdenes el ${when(m.suspended_until)}.</div>`;
-  const all = S.market, f = S.agF, sub = S.agSub;
-  const ents = S.ents;
+  const can = isAgent() && verified() && !S.asAgent.some(o => o.status === 'aceptada') && !susp;
+  let head = verifyBanner();
+  if (verified()) {
+    if (m.agent_status === 'no') head += `<div class="alert a-info"><b>Estás viendo las órdenes como cliente.</b> Si tienes saldo en un banco o caja, hazte agente: te devolvemos lo que transfieres más el ${Math.round(c.agent_share * 100)}% de la comisión.<button class="btn" style="margin-top:8px" data-act="beagent">Quiero ser agente</button></div>`;
+    if (m.agent_status === 'solicitado') head += `<div class="alert a-info"><b>Tu solicitud de agente está en revisión.</b> Te avisaremos cuando puedas aceptar órdenes.</div>`;
+    if (m.agent_status === 'retirado') head += `<div class="alert a-bad">Perdiste el rol de agente por acumular ${c.strikes_max} strikes. Puedes seguir usando la app como cliente.</div>`;
+  } else if (m.agent_status === 'solicitado') head += `<p class="mut">Te registraste como agente. Cuando soporte confirme tu identidad podrás aceptar órdenes.</p>`;
+  if (cur) head += `<button class="it card" style="display:grid" data-act="aopen" data-id="${cur.id}"><b>Orden en curso: ${esc(cur.code)}</b><span class="tag ${ST[cur.status][1]}">${ST[cur.status][0]}</span><span class="mut">${esc(cur.dest_entity)} · ${money(cur.amount)}</span><span>Abrir →</span></button>`;
+  if (susp) head += `<div class="alert a-bad"><b>Suspendido por strike ${m.strikes}/${c.strikes_max}.</b> Vuelves a tomar órdenes el ${when(m.suspended_until)}.</div>`;
+  if (isAgent() && verified() && !S.accs.length) head += `<div class="alert a-warn">Registra tus cuentas en <b>Cuenta</b> para poder aceptar órdenes de esas entidades.</div>`;
+  const all = S.market, f = S.agF, sub = S.agSub, ents = S.ents;
   const list = all.filter(o => f === 'top' || (f === 'cajas' ? (sub ? o.dest_entity === sub : ents.find(e => e.name === o.dest_entity)?.kind === 'caja') : o.dest_entity === f));
   const banks = ents.filter(e => e.kind === 'banco').map(e => e.name);
-  return `<div class="row"><h1>Órdenes del Perú</h1><button class="btn o sm" data-act="refresh">Actualizar</button></div>${head}
+  const done = S.asAgent.filter(o => !['aceptada','confirmacion','revision'].includes(o.status));
+  return `<div class="row"><h1>Órdenes publicadas</h1><button class="btn o sm" data-act="refresh">Actualizar</button></div>
+  <p class="mut" style="margin:4px 0 0">${all.length} ${all.length === 1 ? 'orden pendiente' : 'órdenes pendientes'} de realizarse en todo el Perú. ${isAgent() && verified() ? 'Acepta las de entidades donde tienes saldo.' : 'Solo los agentes verificados pueden aceptarlas.'}</p>${head}
   ${all.length ? `<div class="hot"><h2>Las más rentables</h2>${all.slice(0, 3).map(o => oCard(o, can)).join('')}</div>` : ''}
   <h2 class="sec">Por entidad</h2>
   <div class="chips" role="group" aria-label="Filtrar por entidad">${[['top','Todas'], ...banks.map(b => [b, b.replace('Banco de la Nación','B. Nación')]), ['cajas','Cajas']].map(([v, t]) => `<button class="chip" data-act="agf" data-v="${esc(v)}" aria-pressed="${f === v}">${esc(t)}</button>`).join('')}</div>
   ${f === 'cajas' ? `<div class="chips">${ents.filter(e => e.kind === 'caja').map(e => `<button class="chip" data-act="agsub" data-v="${esc(e.name)}" aria-pressed="${sub === e.name}">${esc(e.name.replace('Caja ', ''))}</button>`).join('')}</div>` : ''}
-  ${list.length ? list.map(o => oCard(o, can)).join('') : '<p class="empty">No hay órdenes para esta entidad ahora.</p>'}
-  ${S.asAgent.filter(o => !['aceptada','confirmacion','revision'].includes(o.status)).length ? `<h2 class="sec">Mis órdenes atendidas</h2><div class="card"><div class="list">${S.asAgent.filter(o => !['aceptada','confirmacion','revision'].includes(o.status)).slice(0, 20).map(o => oRow(o, 'aopen')).join('')}</div></div>` : ''}`;
+  ${list.length ? list.map(o => oCard(o, can)).join('') : '<p class="empty">No hay órdenes pendientes para esta entidad ahora.</p>'}
+  ${done.length ? `<h2 class="sec">Mis órdenes atendidas</h2><div class="card"><div class="list">${done.slice(0, 20).map(o => oRow(o, 'aopen')).join('')}</div></div>` : ''}`;
 }
 function vAgentOrder(o) {
   const c = S.cfg, [l, cls] = ST[o.status];
@@ -419,7 +440,7 @@ function vAgentOrder(o) {
 /* ======================= BILLETERA, CUENTA, AVISOS ======================= */
 function vWallet() {
   const accs = S.accs.filter(a => !a.flagged);
-  return `<h1>Billetera</h1>
+  return `<h1>Billetera</h1>${verifyBanner()}
   <div class="card dark"><span class="mut">Saldo disponible</span><div class="big num">${money(S.me.wallet)}</div><span class="mut">Devoluciones y liquidaciones llegan aquí al instante. Retira cuando quieras.</span></div>
   ${+S.me.wallet > 0 && accs.length ? `<div class="card"><h3>Retirar a mi cuenta</h3>
     <label class="f" for="w-acc">Cuenta</label><select id="w-acc">${accs.map(a => `<option value="${a.id}">${esc(a.entity)} ${tail(a.number)}</option>`).join('')}</select>
@@ -432,13 +453,13 @@ function vWallet() {
 function vAccount() {
   const m = S.me, c = S.cfg;
   return `<h1>Mi cuenta</h1>
-  <div class="card"><div class="row"><b>${esc(m.full_name)}</b><span class="tag t-ok">Verificado</span></div>
+  ${verifyBanner()}<div class="card"><div class="row"><b>${esc(m.full_name)}</b>${verified() ? '<span class="tag t-ok">Verificado</span>' : m.kyc_status === 'en_revision' ? '<span class="tag t-warn">En revisión</span>' : '<span class="tag t-warn">Sin verificar</span>'}</div>
   <div class="row mut"><span>DNI</span><span class="num">${mask(m.dni)}</span></div><div class="row mut"><span>Correo</span><span>${esc(m.email)}</span></div>
-  <div class="row mut"><span>Rol</span><span>${m.role === 'usuario' ? (isAgent() ? 'Cliente y agente' : 'Cliente') : m.role === 'admin' ? 'Administrador' : 'Soporte'}</span></div>
+  <div class="row mut"><span>Rol</span><span>${m.role === 'admin' ? 'Administrador' : m.role === 'soporte' ? 'Soporte' : isAgent() ? 'Cliente y agente' : m.agent_status === 'solicitado' ? 'Agente (por verificar)' : 'Cliente'}</span></div>
   ${isAgent() || m.strikes ? `<div class="row mut" style="margin-top:10px"><span>Strikes</span><span>${m.strikes} de ${c.strikes_max}</span></div><div class="stk">${Array.from({length: c.strikes_max}, (_, i) => `<i class="${i < m.strikes ? 'on' : ''}"></i>`).join('')}</div>` : ''}</div>
   <h2 class="sec">Mis cuentas</h2>
   <p class="mut" style="margin:0">Solo cuentas a tu nombre. El agente ve el titular al transferir: si no eres tú, la orden se cancela y la cuenta queda observada.</p>
-  <div class="card"><div class="list">${S.accs.length ? S.accs.map(a => `<div class="it" style="cursor:default"><b>${esc(a.entity)}</b><button class="lnk" style="min-height:auto;padding:0" data-act="rmacc" data-id="${a.id}">Quitar</button><span class="mut num">${esc(a.number)}</span><span>${a.flagged ? `<span class="tag t-bad">Observada</span>` : '<span class="tag t-ok">A tu nombre</span>'}</span></div>`).join('') : '<p class="empty">Aún no registras cuentas.</p>'}</div>
+  <div class="card"><div class="list">${S.accs.length ? S.accs.map(a => `<div class="it" style="cursor:default"><b>${esc(a.entity)}</b><button class="lnk" style="min-height:auto;padding:0" data-act="rmacc" data-id="${a.id}">Quitar</button><span class="mut num">${esc(a.number)}</span><span>${a.flagged ? `<span class="tag t-bad">Observada</span>` : `<span class="tag ${verified() ? 't-ok' : 't-mute'}">${verified() ? 'A tu nombre' : 'Por verificar'}</span>`}</span></div>`).join('') : '<p class="empty">Aún no registras cuentas.</p>'}</div>
   <label class="f" for="a-ent">Entidad</label><select id="a-ent">${S.ents.map(e => `<option>${esc(e.name)}</option>`).join('')}</select>
   <label class="f" for="a-num">Número de cuenta</label><input id="a-num" inputmode="numeric" autocomplete="off">
   <p class="err" id="a-err"></p><button class="btn o" data-act="addacc">Agregar cuenta</button></div>
@@ -461,7 +482,7 @@ function person(id) { const p = S.st.profs?.[id]; return p ? `${esc(p.full_name)
 function vStaff() {
   const s = S.st, sum = s.sum || {};
   const tabs = [['depositos', `Depósitos (${s.deps?.length || 0})`], ['casos', `Casos (${(s.cases || []).filter(c => c.status === 'abierto').length})`], ['retiros', `Retiros (${s.wds?.length || 0})`],
-    ['identidad', `Identidad (${s.kyc?.length || 0})`], ['agentes', 'Agentes'], ['operaciones', 'Operaciones'], ['entidades', 'Entidades'], ['lista', 'Lista negra'], ['reclamos', `Reclamos (${(s.recl || []).filter(r => r.status === 'recibido').length})`], ...(S.me.role === 'admin' ? [['ajustes', 'Ajustes']] : [])];
+    ['identidad', `Verificaciones (${s.kyc?.length || 0})`], ['agentes', 'Agentes'], ['operaciones', 'Operaciones'], ['entidades', 'Entidades'], ['lista', 'Lista negra'], ['reclamos', `Reclamos (${(s.recl || []).filter(r => r.status === 'recibido').length})`], ...(S.me.role === 'admin' ? [['ajustes', 'Ajustes']] : [])];
   let body = '';
   const t = S.staffTab;
   if (t === 'depositos') body = s.deps.length ? s.deps.map(o => `<div class="card"><div class="row"><h3>${esc(o.code)}</h3><b class="num">${money(o.total)}</b></div>
@@ -483,13 +504,16 @@ function vStaff() {
     <p style="margin:6px 0">${person(w.user_id)}<br>A: <b>${esc(w.entity)} ${esc(w.number)}</b></p>
     <label class="f" for="wc-${w.id}">Código de operación del pago</label><input id="wc-${w.id}" inputmode="numeric">
     <div class="grid2"><button class="btn" data-act="swd" data-id="${w.id}" data-ok="1">Marcar como pagado</button><button class="btn o" data-act="swd" data-id="${w.id}" data-ok="0">Rechazar y devolver al saldo</button></div></div>`).join('') : '<p class="empty">No hay retiros por pagar.</p>';
-  if (t === 'identidad') body = (s.kyc.length ? s.kyc.map(p => `<div class="card"><div class="row"><h3>${esc(p.full_name)}</h3><span class="mut">DNI ${esc(p.dni)}</span></div>
-    <p class="mut" style="margin:4px 0">${esc(p.email)} · ${esc(p.phone || '')} · ${esc(p.dept || '')}</p>
-    <div class="ph"><img data-b="kyc" data-p="${esc(p.dni_photo_path)}" alt="DNI"><img data-b="kyc" data-p="${esc(p.selfie_path)}" alt="Selfie"></div>
-    <p style="margin:8px 0">Comprueba que el nombre y el DNI coinciden con la foto, que la selfie es la misma persona y que no se parece a nadie de la lista negra.</p>
-    <label class="f" for="kn-${p.id}">Motivo si rechazas</label><input id="kn-${p.id}">
-    <div class="grid2"><button class="btn" data-act="skyc" data-id="${p.id}" data-ok="1">Aprobar identidad</button><button class="btn r" data-act="skyc" data-id="${p.id}" data-ok="0">Rechazar</button></div></div>`).join('') : '<p class="empty">No hay identidades por revisar.</p>')
-    + (s.flagged.length ? `<h2 class="sec">Cuentas observadas</h2><div class="card">${s.flagged.map(a => `<p>${person(a.user_id)}<br>${esc(a.entity)} ${esc(a.number)} · <span class="tag t-bad">${esc(a.flagged)}</span></p>`).join('')}</div>` : '');
+  if (t === 'identidad') { const withP = s.kyc.filter(p => p.kyc_status === 'en_revision'), noP = s.kyc.filter(p => p.kyc_status === 'pendiente');
+    const card = p => `<div class="card"><div class="row"><h3>${esc(p.full_name || 'Sin nombre')}</h3><span class="mut">DNI ${esc(p.dni || '—')}</span></div>
+    <p class="mut" style="margin:4px 0">${esc(p.email)} · ${esc(p.phone || '')} · ${esc(p.dept || '')} · registrado ${when(p.created_at)}<br>${p.agent_status === 'solicitado' ? '<span class="tag t-info">Quiere ser agente</span>' : '<span class="tag t-mute">Cliente</span>'}</p>
+    ${p.kyc_status === 'en_revision' ? `<div class="ph"><img data-b="kyc" data-p="${esc(p.dni_photo_path)}" alt="DNI"><img data-b="kyc" data-p="${esc(p.selfie_path)}" alt="Selfie"></div>
+    <p style="margin:8px 0">Comprueba que el nombre y el DNI coinciden con la foto, que la selfie es la misma persona y que no se parece a nadie de la lista negra.</p>`
+    : `<div class="alert a-warn" style="margin-top:8px">Aún no subió su DNI ni su selfie. Confírmalo solo si verificaste su identidad por otro medio (en persona o por videollamada con su DNI).</div>`}
+    <label class="f" for="kn-${p.id}">Nota (obligatoria si rechazas)</label><input id="kn-${p.id}" placeholder="${p.kyc_status === 'pendiente' ? 'Ej. Verificado por videollamada con DNI' : 'Ej. La selfie no coincide'}">
+    <div class="grid2"><button class="btn" data-act="skyc" data-id="${p.id}" data-ok="1">Confirmar verificación${p.agent_status === 'solicitado' ? ' y activar agente' : ''}</button><button class="btn r" data-act="skyc" data-id="${p.id}" data-ok="0">Rechazar</button></div></div>`;
+    body = (s.kyc.length ? `${withP.length ? `<h2 class="sec">Enviaron sus fotos (${withP.length})</h2>${withP.map(card).join('')}` : ''}${noP.length ? `<h2 class="sec">Registrados sin fotos (${noP.length})</h2>${noP.map(card).join('')}` : ''}` : '<p class="empty">Nadie está esperando verificación.</p>')
+    + (s.flagged.length ? `<h2 class="sec">Cuentas observadas</h2><div class="card">${s.flagged.map(a => `<p>${person(a.user_id)}<br>${esc(a.entity)} ${esc(a.number)} · <span class="tag t-bad">${esc(a.flagged)}</span></p>`).join('')}</div>` : ''); }
   if (t === 'agentes') body = `<div class="scroll"><table><thead><tr><th>Agente</th><th>Estado</th><th>Strikes</th><th class="n">Saldo</th><th></th></tr></thead><tbody>${s.agents.map(p => {
     const susp = p.suspended_until && new Date(p.suspended_until).getTime() > now();
     return `<tr><td>${esc(p.full_name)}<br><span class="mut">${esc(p.dept || '')} · DNI ${esc(p.dni || '')}</span></td><td>${p.banned ? '<span class="tag t-bad">Bloqueado</span>' : p.agent_status === 'solicitado' ? '<span class="tag t-warn">Solicitó</span>' : p.agent_status === 'retirado' ? '<span class="tag t-mute">Sin rol</span>' : susp ? '<span class="tag t-warn">Suspendido</span>' : '<span class="tag t-ok">Activo</span>'}</td>
@@ -507,7 +531,7 @@ function vStaff() {
     body = `<div class="card">${F.map(([k, l, ty]) => `<label class="f" for="cfg-${k}">${l}</label><input id="cfg-${k}" type="${ty}" step="any" value="${esc(c[k] ?? '')}">`).join('')}<p class="err" id="cfg-err"></p><button class="btn" data-act="scfg">Guardar ajustes</button></div>
     <div class="card"><h3>Dar rol de soporte</h3><label class="f" for="role-email">Correo del usuario</label><input id="role-email" type="email"><label class="f" for="role-v">Rol</label><select id="role-v"><option value="soporte">Soporte</option><option value="usuario">Usuario normal</option><option value="admin">Administrador</option></select><p class="err" id="role-err"></p><button class="btn o" data-act="srole">Guardar rol</button></div>`; }
   return `<div class="row"><h1>Soporte</h1><button class="btn o sm" data-act="refresh">Actualizar</button></div>
-  <div class="kpis"><div class="kpi"><span class="mut">En custodia</span><b>${money(sum.custody)}</b></div><div class="kpi"><span class="mut">Saldos de usuarios</span><b>${money(sum.wallets)}</b></div><div class="kpi"><span class="mut">Retiros por pagar</span><b>${money(sum.withdrawals_pending)}</b></div><div class="kpi"><span class="mut">Ganancia de la plataforma</span><b>${money(sum.platform_earned)}</b></div></div>
+  <div class="kpis"><button class="kpi go${s.kyc?.length ? ' hot2' : ''}" data-act="stab" data-v="identidad"><span class="mut">Esperando verificación</span><b>${s.kyc?.length || 0} ${s.kyc?.length === 1 ? 'persona' : 'personas'}</b></button><div class="kpi"><span class="mut">En custodia</span><b>${money(sum.custody)}</b></div><div class="kpi"><span class="mut">Saldos de usuarios</span><b>${money(sum.wallets)}</b></div><div class="kpi"><span class="mut">Retiros por pagar</span><b>${money(sum.withdrawals_pending)}</b></div><div class="kpi"><span class="mut">Ganancia de la plataforma</span><b>${money(sum.platform_earned)}</b></div></div>
   <p class="mut">En la cuenta recaudadora debe haber al menos: custodia + saldos + retiros por pagar = <b class="num">${money(+sum.custody + +sum.wallets + +sum.withdrawals_pending)}</b>, más la ganancia acumulada.</p>
   <div class="stabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" aria-selected="${t === k}" data-act="stab" data-v="${k}">${l}</button>`).join('')}</div>
   <div style="margin-top:6px">${body}</div>`;
@@ -536,17 +560,17 @@ function render() {
   if (!S.user || S.auth === 'newpass') { app.innerHTML = vAuth(); return; }
   if (!S.me) { app.innerHTML = '<div class="spin">Preparando tu cuenta…</div>'; return; }
   const unread = S.notes.filter(n => !n.read).length;
-  const top = `<header class="top"><div class="in"><img src="logo.png" alt="Agente Móvil"><button class="ib" data-act="notes" aria-label="Avisos${unread ? ', ' + unread + ' sin leer' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${IC.bell}</svg>${unread ? `<span class="dot">${unread}</span>` : ''}</button></div></header>`;
+  const top = `<header class="top"><div class="in">${brand()}<button class="ib" data-act="notes" aria-label="Avisos${unread ? ', ' + unread + ' sin leer' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${IC.bell}</svg>${unread ? `<span class="dot">${unread}</span>` : ''}</button></div></header>`;
   if (S.me.banned) { app.innerHTML = top + vBlocked(); return; }
-  if (S.me.kyc_status !== 'aprobado' && !isStaff()) { app.innerHTML = top + vKyc(); return; }
   let body;
   const v = S.view;
-  if (v?.k === 'new') body = vNew();
+  if (v?.k === 'kyc') body = vKyc();
+  else if (v?.k === 'new') body = vNew();
   else if (v?.k === 'order') body = vOrder(ord(v.id));
   else if (v?.k === 'aorder') body = vAgentOrder(ord(v.id));
   else if (v?.k === 'notes') body = vNotes();
   else body = { home: vHome, agent: vAgent, wallet: vWallet, account: vAccount, staff: vStaff }[S.tab]();
-  const tabs = [['home','Inicio','home'], ['agent','Agente','agent'], ['wallet','Billetera','wal'], ['account','Cuenta','user'], ...(isStaff() ? [['staff','Soporte','shield']] : [])];
+  const tabs = [['home','Inicio','home'], ['agent','Órdenes','list'], ['wallet','Billetera','wal'], ['account','Cuenta','user'], ...(isStaff() ? [['staff','Soporte','shield']] : [])];
   app.innerHTML = top + `<main class="wrap">${body}</main><nav class="nav" aria-label="Menú"><div class="in">${tabs.map(([k, l, i]) => `<button data-act="tab" data-v="${k}" aria-current="${S.tab === k && !v}">${ic(i)}${l}</button>`).join('')}</div></nav>` + sheet();
   if (v?.k === 'new') updSum();
   window.scrollTo(0, y);
@@ -557,9 +581,12 @@ function render() {
 /* ======================= ACCIONES ======================= */
 const A = {
   auth: d => { S.auth = d.v; render(); },
+  regrole: d => { S.regRole = d.v; render(); },
+  eye: (d, b) => { const i = $('#' + d.for); if (!i) return; const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.setAttribute('aria-pressed', show); b.setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña'); b.innerHTML = ic(show ? 'eyeoff' : 'eye'); },
+  kycview: () => { S.view = { k: 'kyc' }; render(); window.scrollTo(0, 0); },
   async login(d, b) { await run(b, async () => { const e = val('l-email'), p = $('#l-pass').value; if (!e || !p) throw new Error('Escribe tu correo y contraseña.'); await api.signIn(e, p); await start(); }, 'l-err'); },
   async register(d, b) { await run(b, async () => {
-    const v = { full_name: val('r-name'), dni: val('r-dni'), phone: val('r-phone'), dept: val('r-dept'), email: val('r-email'), password: $('#r-pass').value };
+    const v = { rol: S.regRole, full_name: val('r-name'), dni: val('r-dni'), phone: val('r-phone'), dept: val('r-dept'), email: val('r-email'), password: $('#r-pass').value };
     if (v.full_name.split(/\s+/).length < 2) throw new Error('Escribe tus nombres y apellidos.');
     if (!/^\d{8}$/.test(v.dni)) throw new Error('El DNI tiene 8 dígitos.');
     if (!/^9\d{8}$/.test(v.phone)) throw new Error('El celular tiene 9 dígitos y empieza con 9.');
@@ -581,12 +608,12 @@ const A = {
     const p1 = await api.upload('kyc', `${id}/dni-${t}.jpg`, await compress(f1));
     const p2 = await api.upload('kyc', `${id}/selfie-${t}.jpg`, await compress(f2));
     const r = await api.rpc('submit_kyc', { p_full_name: name, p_dni: dni, p_dni_photo: p1, p_selfie: p2 });
-    await refresh(); if (r === 'en_revision') toast('Recibimos tus fotos. Te avisaremos cuando estén revisadas.'); }, 'k-err'); },
+    S.view = null; await refresh(); if (r === 'en_revision') toast('Recibimos tus fotos. Te avisaremos cuando estén revisadas.'); }, 'k-err'); },
   tab: d => { S.tab = d.v; S.view = null; render(); window.scrollTo(0, 0); },
   go: d => { S.tab = d.tab; S.view = d.view ? { k: d.view } : null; render(); },
   notes: () => { S.prevTab = S.tab; S.view = { k: 'notes' }; render(); window.scrollTo(0, 0); if (S.notes.some(n => !n.read)) api.markRead(meId()).then(() => { S.notes.forEach(n => n.read = true); }); },
   note: d => { if (!d.id) return; const o = ord(d.id); if (!o) return; if (o.client_id === meId()) { S.tab = 'home'; S.view = { k: 'order', id: o.id }; } else if (o.agent_id === meId()) { S.tab = 'agent'; S.view = { k: 'aorder', id: o.id }; } else if (isStaff()) { S.tab = 'staff'; S.view = null; } render(); },
-  new: () => { const c = S.cfg; S.draft = S.draft || { funding: 'deposito', acc: null, amount: 1000, pct: +c.default_pct }; S.view = { k: 'new' }; render(); window.scrollTo(0, 0); },
+  new: () => { if (!verified()) { S.view = { k: 'kyc' }; render(); toast('Primero verificamos tu identidad para que puedas operar.'); return; } const c = S.cfg; S.draft = S.draft || { funding: 'deposito', acc: null, amount: 1000, pct: +c.default_pct }; S.view = { k: 'new' }; render(); window.scrollTo(0, 0); },
   async create(d, b) { await run(b, async () => {
     const x = S.draft; const id = await api.rpc('create_order', { p_dest_account: +x.acc, p_amount: +x.amount, p_pct: +x.pct, p_funding: x.funding });
     await refresh(); S.view = { k: 'order', id }; render(); window.scrollTo(0, 0); }, 'd-err'); },
@@ -626,7 +653,7 @@ const A = {
   async scase(d, b) { const ok = d.ok === '1', note = val('cn-' + d.id); if (!note) { toast('Escribe cómo verificaste el código.'); return; }
     S.sheet = { type: 'confirm', title: ok ? 'Liberar al agente' : 'Devolver al cliente', text: ok ? 'La transferencia existe. El agente recibe su dinero' + ' y, si fue una denuncia, el cliente queda bloqueado.' : 'El voucher es falso. El cliente recupera su dinero y el agente queda bloqueado y en la lista negra.', yes: 'Confirmar decisión', danger: !ok, fn: () => api.rpc('resolve_case', { p_case: +d.id, p_transfer_ok: ok, p_note: note }) }; render(); },
   async swd(d, b) { const ok = d.ok === '1', code = val('wc-' + d.id); if (ok && !code) { toast('Escribe el código de operación del pago.'); return; } await run(b, async () => { await api.rpc('resolve_withdrawal', { p_id: +d.id, p_paid: ok, p_code: code || 'Rechazado por soporte' }); await refresh(); }); },
-  skyc: async (d, b) => run(b, async () => { const ok = d.ok === '1', note = val('kn-' + d.id); if (!ok && !note) throw new Error('Escribe el motivo del rechazo.'); await api.rpc('review_kyc', { p_user: d.id, p_ok: ok, p_note: note || null }); await refresh(); }),
+  skyc: async (d, b) => run(b, async () => { const ok = d.ok === '1', note = val('kn-' + d.id); if (!ok && !note) throw new Error('Escribe el motivo del rechazo.'); await api.rpc('review_kyc', { p_user: d.id, p_ok: ok, p_note: note || null }); await refresh(); toast(ok ? 'Verificación confirmada.' : 'Verificación rechazada.'); }),
   sagent: async (d, b) => run(b, async () => { await api.rpc('review_agent', { p_user: d.id, p_ok: d.ok === '1' }); await refresh(); }),
   sunsusp: async (d, b) => run(b, async () => { await api.rpc('staff_lift_suspension', { p_user: d.id }); await refresh(); }),
   sdown: async (d, b) => run(b, async () => { await api.rpc('set_entity_down', { p_entity: d.v, p_down: d.ok === '1' }); await refresh(); }),

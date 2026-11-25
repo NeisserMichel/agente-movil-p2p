@@ -96,14 +96,22 @@ declare v_dni text := nullif(regexp_replace(coalesce(new.raw_user_meta_data->>'d
         v_bl  public.blacklist;
 begin
   select * into v_bl from public.blacklist where dni = v_dni limit 1;
-  insert into public.profiles (id, email, full_name, dni, phone, dept, banned, ban_reason)
+  insert into public.profiles (id, email, full_name, dni, phone, dept, banned, ban_reason, agent_status)
   values (new.id, new.email,
           coalesce(trim(new.raw_user_meta_data->>'full_name'),''),
           v_dni,
           new.raw_user_meta_data->>'phone',
           new.raw_user_meta_data->>'dept',
           v_bl.id is not null,
-          case when v_bl.id is not null then 'DNI en lista negra: '||v_bl.reason end);
+          case when v_bl.id is not null then 'DNI en lista negra: '||v_bl.reason end,
+          case when new.raw_user_meta_data->>'rol' = 'agente' then 'solicitado' else 'no' end);
+  if v_bl.id is null then
+    insert into public.notifications (user_id, title, body)
+    select id, 'Nuevo registro por verificar',
+           coalesce(trim(new.raw_user_meta_data->>'full_name'),'') || ' · DNI ' || coalesce(v_dni,'—') ||
+           case when new.raw_user_meta_data->>'rol' = 'agente' then ' · quiere ser agente' else ' · cliente' end
+      from public.profiles where role in ('soporte','admin') and not banned;
+  end if;
   return new;
 end $$;
 drop trigger if exists on_auth_user_created on auth.users;
@@ -422,14 +430,23 @@ end $$;
 
 create or replace function public.review_kyc(p_user uuid, p_ok boolean, p_note text)
 returns void language plpgsql security definer set search_path = public as $$
+declare p public.profiles;
 begin
   if not public.is_staff() then raise exception 'Solo soporte.'; end if;
-  update public.profiles set kyc_status = case when p_ok then 'aprobado' else 'rechazado' end, kyc_note = p_note
-   where id = p_user and kyc_status = 'en_revision';
-  if not found then raise exception 'La verificación ya fue revisada.'; end if;
-  update public.bank_accounts set holder = (select full_name from public.profiles where id = p_user) where user_id = p_user;
+  select * into p from public.profiles where id = p_user for update;
+  if p.id is null or p.kyc_status not in ('pendiente','en_revision') then raise exception 'La verificación ya fue revisada.'; end if;
+  if p.banned then raise exception 'La cuenta está bloqueada.'; end if;
+  if p_ok and coalesce(p.dni,'') !~ '^\d{8}$' then raise exception 'La persona no tiene un DNI válido registrado.'; end if;
+  if p_ok and exists (select 1 from public.profiles where dni = p.dni and id <> p.id and kyc_status = 'aprobado')
+    then raise exception 'Ese DNI ya pertenece a otra cuenta verificada.'; end if;
+  update public.profiles set kyc_status = case when p_ok then 'aprobado' else 'rechazado' end, kyc_note = p_note,
+         agent_status = case when p_ok and agent_status = 'solicitado' then 'activo' else agent_status end
+   where id = p_user;
+  update public.bank_accounts set holder = p.full_name where user_id = p_user;
   perform app_private.notify(p_user, case when p_ok then 'Identidad verificada' else 'Verificación rechazada' end,
-    case when p_ok then 'Ya puedes mover tu dinero en Agente Móvil.' else coalesce(p_note,'Vuelve a subir fotos claras de tu DNI y tu rostro.') end, null);
+    case when p_ok and p.agent_status = 'solicitado' then 'Ya eres agente verificado: puedes aceptar órdenes.'
+         when p_ok then 'Ya puedes mover tu dinero en Agente Móvil.'
+         else coalesce(p_note,'Vuelve a subir fotos claras de tu DNI y tu rostro.') end, null);
 end $$;
 
 create or replace function public.add_account(p_entity text, p_number text)
@@ -551,38 +568,41 @@ begin
   end if;
 end $$;
 
--- Mercado de órdenes para agentes (sin datos personales del cliente)
+-- Mercado de órdenes publicadas: lo ven todos los usuarios con sesión (sin datos personales del cliente).
+-- Aceptar sigue exigiendo ser agente verificado (ver accept_order).
+drop function if exists public.list_market();
 create or replace function public.list_market()
 returns table (id bigint, code text, dest_entity text, amount numeric, pct numeric, agent_fee numeric,
-               client_short text, client_dept text, published_at timestamptz, has_account boolean)
+               client_short text, client_dept text, published_at timestamptz, has_account boolean, is_mine boolean)
 language plpgsql stable security definer set search_path = public as $$
 declare p public.profiles := app_private.me();
 begin
-  if p.agent_status <> 'activo' and not public.is_staff() then raise exception 'Solo agentes activos.'; end if;
   return query
     select o.id, o.code, o.dest_entity, o.amount, o.pct, o.agent_fee, o.client_short, o.client_dept, o.published_at,
-           exists (select 1 from public.bank_accounts b where b.user_id = p.id and b.entity = o.dest_entity and b.active)
+           exists (select 1 from public.bank_accounts b where b.user_id = p.id and b.entity = o.dest_entity and b.active),
+           o.client_id = p.id
       from public.orders o
-     where o.status = 'publicada' and o.client_id <> p.id
+     where o.status = 'publicada'
      order by o.pct desc, o.amount desc, o.published_at asc
-     limit 200;
+     limit 300;
 end $$;
 
 create or replace function public.request_agent()
 returns void language plpgsql security definer set search_path = public as $$
 declare p public.profiles := app_private.me();
 begin
-  if p.kyc_status <> 'aprobado' then raise exception 'Primero verificamos tu identidad.'; end if;
   if p.agent_status = 'retirado' then raise exception 'Perdiste el rol de agente por strikes o fraude.'; end if;
   if p.agent_status in ('solicitado','activo') then return; end if;
   update public.profiles set agent_status = 'solicitado' where id = p.id;
-  perform app_private.notify_staff('Solicitud para ser agente', p.full_name || ' · DNI ' || p.dni, null);
+  perform app_private.notify_staff('Solicitud para ser agente', p.full_name || ' · DNI ' || coalesce(p.dni,'—'), null);
 end $$;
 
 create or replace function public.review_agent(p_user uuid, p_ok boolean)
 returns void language plpgsql security definer set search_path = public as $$
 begin
   if not public.is_staff() then raise exception 'Solo soporte.'; end if;
+  if p_ok and not exists (select 1 from public.profiles where id = p_user and kyc_status = 'aprobado')
+    then raise exception 'Primero confirma la identidad de esta persona.'; end if;
   update public.profiles set agent_status = case when p_ok then 'activo' else 'no' end where id = p_user and agent_status = 'solicitado';
   if not found then raise exception 'La solicitud ya fue revisada.'; end if;
   perform app_private.notify(p_user, case when p_ok then 'Ya eres agente' else 'Solicitud de agente rechazada' end,
@@ -594,7 +614,8 @@ returns void language plpgsql security definer set search_path = public as $$
 declare p public.profiles := app_private.me(); c public.settings := app_private.cfg(); o public.orders;
 begin
   perform app_private.process_timeouts();
-  if p.agent_status <> 'activo' then raise exception 'Tu cuenta no está activa como agente.'; end if;
+  if p.kyc_status <> 'aprobado' then raise exception 'Primero verificamos tu identidad. Hasta entonces puedes ver las órdenes, pero no aceptarlas.'; end if;
+  if p.agent_status <> 'activo' then raise exception 'Solo los agentes verificados pueden aceptar órdenes.'; end if;
   if p.suspended_until > now() then raise exception 'Estás suspendido hasta %.', to_char(p.suspended_until at time zone 'America/Lima','DD/MM HH24:MI'); end if;
   if exists (select 1 from public.orders where agent_id = p.id and status = 'aceptada') then raise exception 'Termina tu orden en curso antes de tomar otra.'; end if;
   select * into o from public.orders where id = p_order for update;

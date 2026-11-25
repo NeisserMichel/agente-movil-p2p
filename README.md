@@ -4,11 +4,11 @@ Plataforma donde los clientes mueven **su propio dinero** entre sus cuentas de d
 
 | Carpeta / archivo | Qué es |
 |---|---|
-| `index.html` | Página web pública (cómo funciona, seguridad, calculadora de comisión, preguntas) |
+| `index.html` | Página web pública (cómo funciona, seguridad, calculadora de comisión, descarga del APK, preguntas) |
 | `app/` | La app para clientes, agentes y soporte. Se instala en el celular (PWA) |
 | `app/config.js` | **Tus datos de Supabase** (URL y clave pública) |
 | `supabase/schema.sql` | La base de datos completa: tablas, reglas de dinero, seguridad y archivos privados |
-| `supabase/tests/` | Pruebas automáticas de todos los flujos de dinero (73 comprobaciones) |
+| `supabase/tests/` | Pruebas automáticas de todos los flujos de dinero (79 comprobaciones) |
 | `android/` | App Android (abre la app web y permite subir fotos) |
 | `terminos.html`, `privacidad.html` | **Borradores** legales para revisar con un abogado |
 | `libro-reclamaciones.html` | Libro de Reclamaciones virtual, conectado a la base de datos |
@@ -48,6 +48,9 @@ Marca cada paso cuando lo termines. Los pasos 1 a 6 toman unos 30 minutos y son 
 
 **Opción B: repositorio privado + Netlify.** Conecta el repo en https://app.netlify.com → *Add new site → Import from GitHub*. Luego cambia la Site URL del paso 3 y `HOST`/`BASE` en `android/src/pe/agentemovil/p2p/MainActivity.java` por tu dirección de Netlify.
 
+### Cuando haya una actualización de la base de datos
+Vuelve a pegar TODO `supabase/schema.sql` en **SQL Editor → New query → Run**. Se puede ejecutar las veces que quieras: actualiza las reglas y no borra datos.
+
 ### 6. Convertirte en administrador
 1. Abre la app y **regístrate** con tu correo, como cualquier cliente.
 2. En Supabase → SQL Editor, ejecuta (con tu correo):
@@ -73,6 +76,7 @@ Marca cada paso cuando lo termines. Los pasos 1 a 6 toman unos 30 minutos y son 
 
 ## Cómo funciona por dentro
 
+- **Registro como cliente o agente.** Cualquier persona registrada entra a la app y ve las órdenes publicadas, pero solo opera cuando soporte confirma su identidad (Soporte → Verificaciones). Si se registró como agente, al confirmar su identidad queda activo como agente.
 - **Ninguna pantalla cambia saldos.** La app solo llama funciones de la base de datos (`create_order`, `accept_order`, `client_confirm`, `resolve_case`, etc.). Cada función valida quién eres, qué te toca y el estado de la orden.
 - **Cada quien ve solo lo suyo** (seguridad por filas). El agente no ve la cuenta del cliente hasta que acepta la orden.
 - **Capturas y fotos privadas.** Se comprimen a unos 150 KB en el celular y se guardan en almacenamiento privado. Solo las ven las partes de la orden y soporte.
@@ -84,4 +88,4 @@ Marca cada paso cuando lo termines. Los pasos 1 a 6 toman unos 30 minutos y son 
 Salidas: `reembolsada` (el agente no transfirió, voucher falso o titular no coincide), `revision` (soporte decide), `cancelada`, `rechazada` (depósito de un tercero).
 
 ## Probar en tu computadora (para desarrolladores)
-Requiere PostgreSQL 16 y Python 3: `sh supabase/tests/correr.sh` corre los 73 casos de dinero. GitHub también los corre solo en cada cambio de `supabase/` (Actions → Pruebas de la base de datos).
+Requiere PostgreSQL 16 y Python 3: `sh supabase/tests/correr.sh` corre los 79 casos de dinero. GitHub también los corre solo en cada cambio de `supabase/` (Actions → Pruebas de la base de datos).

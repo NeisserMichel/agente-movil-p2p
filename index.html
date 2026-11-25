@@ -28,6 +28,12 @@ a{color:inherit}
 header{background:var(--y);color:#17150f;position:sticky;top:0;z-index:5;border-bottom:3px solid #17150f}
 header .in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;flex-wrap:wrap}
 header img{height:38px;width:auto;display:block}
+.brand{display:flex;align-items:center;gap:6px;text-decoration:none}
+.p2p{font:900 24px/1 Archivo,Inter,sans-serif;color:#009df5;text-shadow:-1.5px 0 #fff,1.5px 0 #fff,0 -1.5px #fff,0 1.5px #fff,1px 1px #fff,-1px -1px #fff}
+.btn svg{width:22px;height:22px;margin-right:8px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.apk{background:#17150f;color:#fff;border-radius:20px;padding:22px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;margin-top:28px}
+.apk p{margin:6px 0 0;color:#d6d1c1}.apk .btn{background:var(--y);color:#17150f}
+@media(max-width:640px){.apk{grid-template-columns:minmax(0,1fr)}}
 header nav{display:flex;gap:4px;flex-wrap:wrap}
 header nav a{text-decoration:none;font-weight:700;padding:10px 12px;border-radius:10px;min-height:44px;display:inline-flex;align-items:center}
 header nav a.cta{background:#17150f;color:var(--y)}
@@ -73,14 +79,14 @@ a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(
 </style>
 </head>
 <body>
-<header><div class="in"><a href="#inicio" aria-label="Inicio"><img src="logo.png" alt="Agente Móvil"></a>
-<nav aria-label="Secciones"><a href="#como">Cómo funciona</a><a href="#seguridad">Seguridad</a><a href="#comision">Comisión</a><a href="#agentes">Ser agente</a><a href="#preguntas">Preguntas</a><a class="cta" href="app/">Abrir la app</a></nav></div></header>
+<header><div class="in"><a class="brand" href="#inicio" aria-label="Agente Móvil P2P, inicio"><img src="logo.png" alt=""><span class="p2p" aria-hidden="true">P2P</span></a>
+<nav aria-label="Secciones"><a href="#como">Cómo funciona</a><a href="#seguridad">Seguridad</a><a href="#comision">Comisión</a><a href="#agentes">Ser agente</a><a href="#preguntas">Preguntas</a><a href="https://github.com/NeisserMichel/agente-movil-p2p/raw/apk-build/agente-movil-p2p.apk">Descargar APK</a><a class="cta" href="app/">Abrir la app</a></nav></div></header>
 
 <section class="hero" id="inicio"><div class="in">
   <div>
     <h1>Mueve tu dinero entre tus cuentas de cualquier banco o caja</h1>
     <p>¿Tienes tu sueldo en el BCP y necesitas el dinero en tu Caja Trujillo? Un agente verificado con saldo allí te lo transfiere en minutos. Tu dinero queda en custodia hasta que tú confirmas que llegó.</p>
-    <div class="btns"><a class="btn k" href="app/">Crear mi cuenta</a><a class="btn o" href="#como">Ver cómo funciona</a></div>
+    <div class="btns"><a class="btn k" href="app/">Crear mi cuenta</a><a class="btn" href="https://github.com/NeisserMichel/agente-movil-p2p/raw/apk-build/agente-movil-p2p.apk"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Descargar app Android</a><a class="btn o" href="#como">Ver cómo funciona</a></div>
   </div>
   <div class="route" aria-label="Recorrido del dinero">
     <ol>
@@ -108,6 +114,8 @@ a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(
       <li>Si el voucher es falso, recuperas todo y el agente queda bloqueado para siempre.</li></ul></div>
     <div class="box"><h3>Tu saldo virtual</h3><p style="margin:12px 0 0">Las devoluciones llegan a tu saldo dentro de la app. Úsalo para otra orden o retíralo a cualquiera de tus cuentas cuando quieras.</p></div>
   </div>
+  <div class="apk" id="descargar"><div><h3 style="color:var(--y)">Agente Móvil P2P para Android</h3><p>Descarga el APK e instálalo. Si tu celular lo pide, permite "instalar apps de fuentes desconocidas" para tu navegador. En iPhone, abre la app web en Safari y toca Compartir → Agregar a inicio.</p></div>
+  <a class="btn" href="https://github.com/NeisserMichel/agente-movil-p2p/raw/apk-build/agente-movil-p2p.apk"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Descargar APK</a></div>
 </div></section>
 
 <section class="band soft" id="seguridad"><div class="in">
@@ -133,7 +141,7 @@ a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(
 <section class="band soft" id="agentes"><div class="in">
   <h2>Gana comisiones como agente</h2>
   <div class="cols">
-    <div class="box"><p style="margin:0">Si tienes saldo en un banco o una caja, transfieres a clientes que necesitan su dinero en esa entidad. Te devolvemos lo que transfieres más el 75% de la comisión en tu saldo, y lo retiras cuando quieras.</p><p><a class="btn" href="app/">Quiero ser agente</a></p></div>
+    <div class="box"><p style="margin:0">Si tienes saldo en un banco o una caja, transfieres a clientes que necesitan su dinero en esa entidad. Te devolvemos lo que transfieres más el 75% de la comisión en tu saldo, y lo retiras cuando quieras.</p><p style="margin:12px 0 0">Al crear tu cuenta elige <b>Agente</b>. Verás las órdenes publicadas de inmediato y podrás aceptarlas cuando verifiquemos tu identidad.</p><p><a class="btn" href="app/">Quiero ser agente</a></p></div>
     <div class="box"><h3>Reglas claras</h3><ul><li>20 minutos para transferir y subir el voucher con su código de operación.</li><li>Si aceptas y no transfieres, sumas un strike. Con 3 pierdes el rol.</li><li>Si el titular de la cuenta destino no coincide, no transfieras: la orden se cancela sin strike.</li><li>Un voucher falso es bloqueo permanente y denuncia.</li></ul></div>
   </div>
 </div></section>
@@ -152,7 +160,7 @@ a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(
 <footer><div class="in">
   <div><b style="color:#fff">Agente Móvil Perú</b><br>RUC 20XXXXXXXXX · Lima, Perú</div>
   <div><a href="terminos.html">Términos y condiciones</a><br><a href="privacidad.html">Política de privacidad</a><br><a href="libro-reclamaciones.html">Libro de reclamaciones</a></div>
-  <div><a href="app/">Abrir la app</a></div>
+  <div><a href="app/">Abrir la app</a><br><a href="https://github.com/NeisserMichel/agente-movil-p2p/raw/apk-build/agente-movil-p2p.apk">Descargar app Android (APK)</a></div>
 </div></footer>
 <script>
 {

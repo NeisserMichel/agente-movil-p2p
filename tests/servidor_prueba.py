@@ -66,7 +66,7 @@ class H(BaseHTTPRequestHandler):
         return r['id']
     def r_signup(self, cur, b):
         cur.execute("insert into auth.users (email, raw_user_meta_data) values (%s, %s) returning id",
-                    (b['email'], json.dumps({k: b.get(k) for k in ('full_name','dni','phone','dept')})))
+                    (b['email'], json.dumps({k: b.get(k) for k in ('full_name','dni','phone','dept','rol')})))
         return cur.fetchone()['id']
     def r_rpc(self, cur, b):
         fn = b['fn']
