@@ -32,6 +32,7 @@ const IC = {
   warn: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
   back: '<path d="M15 6l-6 6 6 6"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   eyeoff: '<path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.2M6.6 6.6C3.9 8.4 2 12 2 12s3.5 7 10 7a9.6 9.6 0 0 0 4.4-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>'
 };
@@ -79,7 +80,7 @@ function msg(e) {
   const t = [
     ['Invalid login credentials', 'Correo o contraseña incorrectos.'],
     ['User already registered', 'Ese correo ya está registrado. Ingresa con tu contraseña.'],
-    ['Database error saving new user', 'No pudimos crear tu cuenta. Revisa tus datos o escríbenos.'],
+    ['Database error saving new user', 'Ya existe una cuenta con ese DNI o ese celular. Solo se permite una cuenta por persona: ingresa con la tuya o escríbenos.'],
     ['Email not confirmed', 'Confirma tu correo: te enviamos un enlace.'],
     ['Password should be at least', 'La contraseña debe tener al menos 8 caracteres.'],
     ['row-level security', 'No tienes permiso para esa acción.'],
@@ -106,12 +107,16 @@ async function compress(file) {
 /* ======================= ESTADO ======================= */
 const S = {
   user: null, me: null, cfg: null, ents: [], accs: [], mine: [], asAgent: [], market: [], notes: [], ledger: [], wds: [],
-  tab: 'home', view: null, auth: 'login', regRole: 'cliente', sheet: null, off: 0, agF: 'top', agSub: null, staffTab: 'depositos', st: {}, draft: null, busy: false
+  tab: 'home', view: null, auth: 'login', regRole: 'cliente', sheet: null, off: 0, agF: 'top', agSub: null, staffTab: 'recargas', st: {}, draft: null, busy: false
 };
 const meId = () => S.me?.id;
 const isStaff = () => S.me && ['soporte','admin'].includes(S.me.role);
 const isAgent = () => S.me?.agent_status === 'activo';
 const verified = () => S.me?.kyc_status === 'aprobado';
+const held = () => (S.wds || []).filter(w => w.status === 'pendiente' && !w.debited).reduce((a, w) => a + +w.amount, 0);
+const avail = () => r2(Math.max(0, +S.me.wallet - held()));
+const upper = v => v.toUpperCase().replace(/\s+/g, ' ').trimStart();
+const dniNote = `<div class="alert a-warn" style="margin-top:12px"><b>Escribe tus datos en MAYÚSCULAS y tal como aparecen en tu DNI.</b> Si no coinciden con tu DNI, tu cuenta no será verificada. Solo puedes tener una cuenta: tu DNI, celular y correo no se pueden usar dos veces.</div>`;
 const pwField = (id, ac) => `<div class="pw"><input id="${id}" type="password" autocomplete="${ac}"><button type="button" class="eye" data-act="eye" data-for="${id}" aria-label="Mostrar contraseña" aria-pressed="false">${ic('eye')}</button></div>`;
 const brand = () => `<span class="brand"><img src="logo.png" alt="Agente Móvil"><span class="p2p">P2P</span></span>`;
 const now = () => Date.now() + S.off;
@@ -131,16 +136,17 @@ async function loadAll() {
     api.select('notifications', q => q.eq('user_id', id).order('created_at', { ascending: false }).limit(60)),
     api.select('wallet_ledger', q => q.eq('user_id', id).order('at', { ascending: false }).limit(60)),
     api.select('withdrawals', q => q.eq('user_id', id).order('created_at', { ascending: false }).limit(30)),
+    api.select('topups', q => q.eq('user_id', id).order('created_at', { ascending: false }).limit(30)),
     api.rpc('server_now')
   ];
-  [S.ents, S.accs, S.mine, S.asAgent, S.notes, S.ledger, S.wds] = await Promise.all(tasks.slice(0, 7));
-  S.off = new Date(await tasks[7]).getTime() - Date.now();
+  [S.ents, S.accs, S.mine, S.asAgent, S.notes, S.ledger, S.wds, S.tops] = await Promise.all(tasks.slice(0, 8));
+  S.off = new Date(await tasks[8]).getTime() - Date.now();
   S.market = await api.rpc('list_market').catch(() => []);
   if (isStaff()) await loadStaff();
 }
 async function loadStaff() {
   const [sum] = await api.rpc('admin_summary');
-  const [deps, cases, wds, kyc, agents, flagged, recent, black, recl] = await Promise.all([
+  const [deps, cases, wds, kyc, agents, flagged, recent, black, recl, tops, bannedBal] = await Promise.all([
     api.select('orders', q => q.eq('status', 'deposito_revision').order('created_at')),
     api.select('cases', q => q.order('created_at', { ascending: false }).limit(60)),
     api.select('withdrawals', q => q.eq('status', 'pendiente').order('created_at')),
@@ -149,12 +155,14 @@ async function loadStaff() {
     api.select('bank_accounts', q => q.not('flagged', 'is', null)),
     api.select('orders', q => q.order('created_at', { ascending: false }).limit(80)),
     api.select('blacklist', q => q.order('created_at', { ascending: false }).limit(100)),
-    api.select('complaints', q => q.order('created_at', { ascending: false }).limit(100))
+    api.select('complaints', q => q.order('created_at', { ascending: false }).limit(100)),
+    api.select('topups', q => q.eq('status', 'pendiente').order('created_at')),
+    api.select('profiles', q => q.eq('banned', true).order('created_at', { ascending: false }).limit(200))
   ]);
   const caseOrders = cases.length ? await api.select('orders', q => q.in('id', cases.map(c => c.order_id))) : [];
-  const people = new Set([...deps.map(o => o.client_id), ...caseOrders.flatMap(o => [o.client_id, o.agent_id]), ...wds.map(w => w.user_id), ...flagged.map(a => a.user_id)].filter(Boolean));
+  const people = new Set([...deps.map(o => o.client_id), ...caseOrders.flatMap(o => [o.client_id, o.agent_id]), ...wds.map(w => w.user_id), ...flagged.map(a => a.user_id), ...tops.map(t => t.user_id)].filter(Boolean));
   const profs = people.size ? await api.select('profiles', q => q.in('id', [...people])) : [];
-  S.st = { sum, deps, cases, caseOrders, wds, kyc, agents, flagged, recent, black, recl, profs: Object.fromEntries(profs.map(p => [p.id, p])) };
+  S.st = { sum, deps, cases, caseOrders, wds, kyc, agents, flagged, recent, black, recl, tops, bannedBal: bannedBal.filter(p => +p.wallet + +p.guarantee > 0), profs: Object.fromEntries(profs.map(p => [p.id, p])) };
 }
 const ord = id => [...S.mine, ...S.asAgent, ...(S.st.recent || []), ...(S.st.caseOrders || []), ...(S.st.deps || [])].find(o => o.id === +id);
 
@@ -239,7 +247,8 @@ function vAuth() {
       <button type="button" data-act="regrole" data-v="agente" aria-pressed="${S.regRole === 'agente'}"><b>Agente</b><span>Transfiero con mi saldo y gano comisiones</span></button>
     </div>
     ${S.regRole === 'agente' ? '<p class="mut" style="margin:8px 0 0">Podrás ver las órdenes apenas entres. Para aceptarlas, soporte debe verificar tu identidad.</p>' : ''}
-    <label class="f" for="r-name">Nombres y apellidos (como en tu DNI)</label><input id="r-name" autocomplete="name">
+    ${dniNote}
+    <label class="f" for="r-name">NOMBRES Y APELLIDOS (como en tu DNI)</label><input id="r-name" autocomplete="name" autocapitalize="characters" style="text-transform:uppercase" placeholder="EJ. LUIS ALBERTO CHÁVEZ RAMOS">
     <div class="grid2"><div><label class="f" for="r-dni">DNI</label><input id="r-dni" inputmode="numeric" maxlength="8"></div>
     <div><label class="f" for="r-phone">Celular</label><input id="r-phone" inputmode="tel" maxlength="9" autocomplete="tel"></div></div>
     <label class="f" for="r-dept">Departamento</label><select id="r-dept"><option value="">Elige…</option>${DEPTS.map(d => `<option>${d}</option>`).join('')}</select>
@@ -276,7 +285,8 @@ function vKyc() {
   return `${back(S.tab)}<div class="card"><h1>Verifica tu identidad</h1>
   <p class="mut">Es obligatorio para clientes y agentes. Así nadie puede usar tu nombre ni mover dinero de terceros.</p>
   ${m.kyc_status === 'rechazado' ? `<div class="alert a-bad"><b>Tu verificación fue rechazada.</b> ${esc(m.kyc_note || 'Sube fotos más claras.')}</div>` : ''}
-  <label class="f" for="k-name">Nombres y apellidos completos</label><input id="k-name" value="${esc(m.full_name)}">
+  ${dniNote}
+  <label class="f" for="k-name">NOMBRES Y APELLIDOS (como en tu DNI)</label><input id="k-name" autocapitalize="characters" style="text-transform:uppercase" value="${esc(m.full_name)}">
   <label class="f" for="k-dni">DNI</label><input id="k-dni" inputmode="numeric" maxlength="8" value="${esc(m.dni || '')}">
   <label class="f" for="k-doc">Foto de tu DNI (lado de la foto, que se lea todo)</label><input id="k-doc" type="file" accept="image/*" capture="environment">
   <label class="f" for="k-self">Selfie sosteniendo tu DNI junto a tu cara</label><input id="k-self" type="file" accept="image/*" capture="user">
@@ -291,28 +301,51 @@ function oRow(o, act) {
   return `<button class="it" data-act="${act}" data-id="${o.id}"><b>${esc(o.dest_entity)} <span class="mut">${tail(o.dest_number)}</span></b><b class="num">${money(o.amount)}</b>
   <span class="mut">${esc(o.code)} · ${when(o.created_at)}</span><span><span class="tag ${c}">${l}</span></span></button>`;
 }
+function walletCard() {
+  const h = held(), g = +S.me.guarantee || 0;
+  return `<div class="card dark"><span class="mut">Saldo virtual disponible</span><div class="big num">${money(avail())}</div>
+  ${h ? `<span class="mut">${money(h)} reservados para un retiro en proceso.</span><br>` : ''}
+  ${isAgent() || S.me.agent_status === 'solicitado' || g ? `<span class="mut">Garantía de agente: <b class="num" style="color:#fff">${money(g)}</b></span><br>` : ''}
+  <span class="mut">Recarga, mueve tu dinero o retíralo cuando quieras.</span></div>`;
+}
+function vTopup() {
+  const c = S.cfg, ready = c.company_account && c.company_account !== 'POR-CONFIGURAR';
+  const list = S.tops || [];
+  return `${back('home')}<h1>Recargar saldo</h1>${verifyBanner()}
+  <p class="mut">Transfiere a la cuenta de la empresa. Cuando soporte confirme que el dinero llegó, verás el mismo monto en tu saldo virtual.</p>
+  ${ready ? `<div class="acct"><div class="k">Cuenta ${esc(c.company_bank)} de ${esc(c.company_holder)}</div><div class="v">${esc(c.company_account)}</div>
+  ${c.company_cci ? `<div class="k" style="margin-top:6px">CCI ${esc(c.company_cci)}</div>` : ''}</div>
+  <button class="btn o" data-act="copy" data-v="${esc(c.company_account)}">Copiar número de cuenta</button>
+  <div class="alert a-warn">Transfiere solo desde una cuenta a tu nombre (${esc(S.me.full_name)}). Si el titular es otra persona, rechazamos la recarga y devolvemos el dinero a su origen.</div>
+  <label class="f" for="t-amt">Monto que transferiste (S/)</label><input id="t-amt" type="number" inputmode="decimal" min="10" step="0.01">
+  <label class="f" for="t-code">Código de operación</label><input id="t-code" inputmode="numeric" autocomplete="off" placeholder="Ej. 06128833">
+  <label class="f" for="t-file">Captura de la constancia</label><input id="t-file" type="file" accept="image/*">
+  <p class="err" id="t-err"></p>
+  <button class="btn" data-act="sendtopup" ${verified() ? '' : 'disabled'}>Ya transferí: validar mi recarga</button>`
+  : `<div class="alert a-info">Las recargas estarán disponibles muy pronto.</div>`}
+  ${list.length ? `<h2 class="sec">Mis recargas</h2><div class="card"><div class="list">${list.map(t => `<div class="it" style="cursor:default"><b class="num">${money(t.amount)}</b><span class="tag ${t.status === 'aprobada' ? 't-ok' : t.status === 'rechazada' ? 't-bad' : 't-warn'}">${t.status === 'aprobada' ? 'Acreditada' : t.status === 'rechazada' ? 'Rechazada' : 'En validación'}</span><span class="mut">op. ${esc(t.op_code)} · ${when(t.created_at)}</span><span class="mut">${esc(t.note || '')}</span></div>`).join('')}</div></div>` : ''}`;
+}
 function vHome() {
   const live = S.mine.filter(o => LIVE.includes(o.status)), past = S.mine.filter(o => !LIVE.includes(o.status));
   return `<h1>Hola, ${esc(S.me.full_name.split(' ')[0])}</h1>${verifyBanner()}
-  <div class="card dark"><span class="mut">Saldo virtual</span><div class="big num">${money(S.me.wallet)}</div><span class="mut">Tu dinero dentro de Agente Móvil. Úsalo para otro envío o retíralo.</span></div>
-  <button class="btn" data-act="new">${ic('send')} Mover mi dinero</button>
+  ${walletCard()}
+  <div class="grid2"><button class="btn y" data-act="topup">${ic('plus')} Recargar saldo</button><button class="btn" data-act="new">${ic('send')} Mover mi dinero</button></div>
+  ${(S.tops || []).filter(t => t.status === 'pendiente').length ? `<div class="alert a-info"><b>Recarga en validación:</b> ${S.tops.filter(t => t.status === 'pendiente').map(t => money(t.amount)).join(', ')}. Aparecerá en tu saldo cuando soporte confirme que llegó.</div>` : ''}
   ${S.market.filter(o => !o.is_mine).length ? `<button class="it card" style="display:grid" data-act="tab" data-v="agent"><b>${S.market.filter(o => !o.is_mine).length} órdenes publicadas en el Perú</b><span>Ver →</span><span class="mut" style="grid-column:1/-1">Mira lo que otros usuarios están moviendo ahora.</span></button>` : ''}
   ${live.length ? `<h2 class="sec">En curso</h2><div class="card"><div class="list">${live.map(o => oRow(o, 'open')).join('')}</div></div>` : ''}
   <h2 class="sec">Historial</h2>${past.length ? `<div class="card"><div class="list">${past.slice(0, 20).map(o => oRow(o, 'open')).join('')}</div></div>` : '<p class="empty">Aún no tienes operaciones terminadas.</p>'}`;
 }
 function vNew() {
-  const c = S.cfg, d = S.draft, bank = c.company_bank;
-  const hasBank = S.accs.some(a => a.entity === bank);
-  const dests = S.accs.filter(a => !a.flagged && (d.funding === 'saldo' || a.entity !== bank));
+  const c = S.cfg, d = S.draft;
+  const dests = S.accs.filter(a => !a.flagged);
   if (!dests.some(a => a.id === d.acc)) d.acc = dests[0]?.id || null;
-  if (!S.accs.length) return `${back('home')}<h1>Mover mi dinero</h1><div class="alert a-info">Primero registra tus cuentas: la de ${esc(bank)} desde donde depositas y las de destino.</div><button class="btn" data-act="tab" data-v="account">Registrar mis cuentas</button>`;
+  if (!S.accs.length) return `${back('home')}<h1>Mover mi dinero</h1><div class="alert a-info">Primero registra las cuentas a tu nombre donde quieres recibir tu dinero.</div><button class="btn" data-act="tab" data-v="account">Registrar mis cuentas</button>`;
   return `${back('home')}<h1>Mover mi dinero</h1>
-  <p class="mut">Solo entre cuentas tuyas. Un agente con saldo en la entidad de destino te transfiere y tú confirmas cuando llegue.</p>
-  <label class="f" for="d-fund">Pagas con</label>
-  <select id="d-fund"><option value="deposito"${d.funding === 'deposito' ? ' selected' : ''}>Depósito desde mi cuenta ${esc(bank)}</option><option value="saldo"${d.funding === 'saldo' ? ' selected' : ''}>Mi saldo virtual (${money(S.me.wallet)})</option></select>
-  ${d.funding === 'deposito' && !hasBank ? `<div class="alert a-warn">Registra tu cuenta ${esc(bank)} a tu nombre: desde ahí depositas. <button class="lnk" data-act="tab" data-v="account">Registrar</button></div>` : ''}
+  <p class="mut">Se paga con tu saldo virtual. Un agente con saldo en la entidad de destino te transfiere a tu cuenta y tú confirmas cuando llegue.</p>
+  <div class="card"><div class="row"><span>Tu saldo disponible</span><b class="num">${money(avail())}</b></div>
+  <button class="btn y sm" style="margin-top:8px" data-act="topup">Recargar saldo</button></div>
   <label class="f" for="d-acc">Hacia mi cuenta</label>
-  ${dests.length ? `<select id="d-acc">${dests.map(a => `<option value="${a.id}"${a.id === d.acc ? ' selected' : ''}>${esc(a.entity)} ${tail(a.number)}</option>`).join('')}</select>` : `<p class="mut">No tienes cuentas de destino en otra entidad. <button class="lnk" data-act="tab" data-v="account">Agregar cuenta</button></p>`}
+  <select id="d-acc">${dests.map(a => `<option value="${a.id}"${a.id === d.acc ? ' selected' : ''}>${esc(a.entity)} ${tail(a.number)}</option>`).join('')}</select>
   <label class="f" for="d-amt">Monto (de ${money(c.min_amount)} a ${money(c.max_amount)})</label>
   <input id="d-amt" type="number" inputmode="decimal" min="${c.min_amount}" max="${c.max_amount}" step="10" value="${d.amount}">
   <label class="f" for="d-pct">Comisión que ofreces: <span id="d-pctv">${pctS(d.pct)}</span></label>
@@ -320,7 +353,7 @@ function vNew() {
   <p class="mut" style="margin:0">${pctS(c.default_pct)} es la tarifa base. Si tienes urgencia, súbela: mientras más alta, más arriba te ven los agentes.</p>
   <div class="sum" id="d-sum"></div>
   <p class="err" id="d-err"></p>
-  <button class="btn" data-act="create" ${dests.length ? '' : 'disabled'}>Continuar</button>`;
+  <button class="btn" data-act="create">Publicar mi orden</button>`;
 }
 function updSum() {
   const el = $('#d-sum'); if (!el) return;
@@ -330,7 +363,8 @@ function updSum() {
   <div class="row"><span>Comisión (${pctS(d.pct)})</span><b class="num">${money(fee)}</b></div>
   <div class="row mut"><span>Para el agente</span><span class="num">${money(ag)}</span></div>
   <div class="row mut"><span>Para Agente Móvil</span><span class="num">${money(fee - ag)}</span></div>
-  <div class="row tot"><span>${d.funding === 'saldo' ? 'Se descuenta de tu saldo' : 'Total a depositar'}</span><span class="num">${money(amt + fee)}</span></div>`;
+  <div class="row tot"><span>Se descuenta de tu saldo</span><span class="num">${money(amt + fee)}</span></div>
+  ${amt + fee > avail() ? `<p class="err" style="margin:8px 0 0">Tu saldo disponible (${money(avail())}) no alcanza. Recarga saldo primero.</p>` : ''}`;
 }
 const back = (tab, view = null) => `<button class="lnk" data-act="go" data-tab="${tab}" data-view="${view || ''}">← Volver</button>`;
 
@@ -377,7 +411,8 @@ function oCard(o, can) {
   let act;
   if (o.is_mine) act = `<span class="tag t-info">Tu orden</span>`;
   else if (!isAgent()) act = '';
-  else act = `<button class="btn ${o.has_account ? '' : 'o'}" data-act="take" data-id="${o.id}" ${can && o.has_account ? '' : 'disabled'}>${o.has_account ? 'Aceptar orden' : 'Necesitas cuenta en ' + esc(o.dest_entity)}</button>`;
+  else { const gOk = +S.me.guarantee >= +o.amount;
+    act = `<button class="btn ${o.has_account && gOk ? '' : 'o'}" data-act="take" data-id="${o.id}" ${can && o.has_account && gOk ? '' : 'disabled'}>${!o.has_account ? 'Necesitas cuenta en ' + esc(o.dest_entity) : !gOk ? 'Tu garantía no alcanza (' + money(S.me.guarantee) + ')' : 'Aceptar orden'}</button>`; }
   return `<div class="oc"><div class="row"><b style="font:800 17px Archivo,Inter,sans-serif">${esc(o.dest_entity)}</b><span class="pct">${pctS(o.pct)}</span></div>
   <div class="am num">${money(o.amount)}</div>
   <div class="mut">${esc(o.client_short)}${o.client_dept ? ' · ' + esc(o.client_dept) : ''} · publicada ${hm(o.published_at)}</div>
@@ -397,6 +432,7 @@ function vAgent() {
   } else if (m.agent_status === 'solicitado') head += `<p class="mut">Te registraste como agente. Cuando soporte confirme tu identidad podrás aceptar órdenes.</p>`;
   if (cur) head += `<button class="it card" style="display:grid" data-act="aopen" data-id="${cur.id}"><b>Orden en curso: ${esc(cur.code)}</b><span class="tag ${ST[cur.status][1]}">${ST[cur.status][0]}</span><span class="mut">${esc(cur.dest_entity)} · ${money(cur.amount)}</span><span>Abrir →</span></button>`;
   if (susp) head += `<div class="alert a-bad"><b>Suspendido por strike ${m.strikes}/${c.strikes_max}.</b> Vuelves a tomar órdenes el ${when(m.suspended_until)}.</div>`;
+  if (isAgent() && verified()) head += `<div class="alert ${+m.guarantee > 0 ? 'a-info' : 'a-warn'}"><b>Tu garantía: ${money(m.guarantee)}.</b> ${+m.guarantee > 0 ? 'Puedes aceptar órdenes de hasta ese monto.' : 'Para aceptar órdenes, pon saldo en garantía: solo puedes aceptar órdenes de hasta ese monto.'} <button class="lnk" data-act="tab" data-v="wallet">Gestionar garantía</button></div>`;
   if (isAgent() && verified() && !S.accs.length) head += `<div class="alert a-warn">Registra tus cuentas en <b>Cuenta</b> para poder aceptar órdenes de esas entidades.</div>`;
   const all = S.market, f = S.agF, sub = S.agSub, ents = S.ents;
   const list = all.filter(o => f === 'top' || (f === 'cajas' ? (sub ? o.dest_entity === sub : ents.find(e => e.name === o.dest_entity)?.kind === 'caja') : o.dest_entity === f));
@@ -439,14 +475,22 @@ function vAgentOrder(o) {
 
 /* ======================= BILLETERA, CUENTA, AVISOS ======================= */
 function vWallet() {
-  const accs = S.accs.filter(a => !a.flagged);
+  const accs = S.accs.filter(a => !a.flagged), av = avail(), g = +S.me.guarantee || 0;
+  const agentish = isAgent() || S.me.agent_status === 'solicitado' || g > 0;
   return `<h1>Billetera</h1>${verifyBanner()}
-  <div class="card dark"><span class="mut">Saldo disponible</span><div class="big num">${money(S.me.wallet)}</div><span class="mut">Devoluciones y liquidaciones llegan aquí al instante. Retira cuando quieras.</span></div>
-  ${+S.me.wallet > 0 && accs.length ? `<div class="card"><h3>Retirar a mi cuenta</h3>
-    <label class="f" for="w-acc">Cuenta</label><select id="w-acc">${accs.map(a => `<option value="${a.id}">${esc(a.entity)} ${tail(a.number)}</option>`).join('')}</select>
-    <label class="f" for="w-amt">Monto</label><input id="w-amt" type="number" inputmode="decimal" step="0.01" value="${(+S.me.wallet).toFixed(2)}">
+  ${walletCard()}
+  <button class="btn y" data-act="topup">${ic('plus')} Recargar saldo</button>
+  ${agentish ? `<div class="card"><h3>Garantía de agente</h3>
+    <p class="mut" style="margin:6px 0 0">Solo puedes aceptar órdenes de hasta el monto de tu garantía. Puedes liberarla a tu saldo cuando no tengas órdenes en curso.</p>
+    <div class="row" style="margin-top:10px"><span>Garantía actual</span><b class="num">${money(g)}</b></div>
+    <label class="f" for="g-amt">Monto</label><input id="g-amt" type="number" inputmode="decimal" step="0.01" min="0">
+    <p class="err" id="g-err"></p>
+    <div class="grid2"><button class="btn" data-act="gadd" ${av > 0 ? '' : 'disabled'}>Pasar de mi saldo a garantía</button><button class="btn o" data-act="grel" ${g > 0 ? '' : 'disabled'}>Liberar garantía a mi saldo</button></div></div>` : ''}
+  ${av > 0 && accs.length ? `<div class="card"><h3>Retirar a mi cuenta</h3>
+    <label class="f" for="w-acc">Cuenta registrada a tu nombre</label><select id="w-acc">${accs.map(a => `<option value="${a.id}">${esc(a.entity)} ${tail(a.number)}</option>`).join('')}</select>
+    <label class="f" for="w-amt">Monto</label><input id="w-amt" type="number" inputmode="decimal" step="0.01" value="${av.toFixed(2)}">
     <p class="err" id="w-err"></p><button class="btn" data-act="withdraw">Solicitar retiro</button>
-    <p class="mut">Soporte procesa los retiros en horario de atención.</p></div>` : ''}
+    <p class="mut">Soporte transfiere a tu cuenta. El monto se descuenta de tu saldo automáticamente cuando soporte confirma el pago; mientras tanto queda reservado.</p></div>` : av > 0 ? `<div class="alert a-info">Para retirar, registra una cuenta a tu nombre en <b>Cuenta</b>.</div>` : ''}
   ${S.wds.length ? `<h2 class="sec">Retiros</h2><div class="card"><div class="list">${S.wds.map(w => `<div class="it" style="cursor:default"><b>${esc(w.entity)} ${tail(w.number)}</b><b class="num">${money(w.amount)}</b><span class="mut">${when(w.created_at)}${w.paid_code ? ' · op. ' + esc(w.paid_code) : ''}</span><span><span class="tag ${w.status === 'pagado' ? 't-ok' : w.status === 'rechazado' ? 't-bad' : 't-warn'}">${w.status === 'pagado' ? 'Pagado' : w.status === 'rechazado' ? 'Rechazado' : 'En proceso'}</span></span></div>`).join('')}</div></div>` : ''}
   <h2 class="sec">Movimientos</h2>${S.ledger.length ? `<div class="card"><div class="list">${S.ledger.map(l => `<div class="it" style="cursor:default"><span>${esc(l.note || l.kind)}</span><b class="num">${+l.amount > 0 ? '+' : ''}${money(l.amount)}</b><span class="mut">${when(l.at)}</span><span class="mut num">Saldo ${money(l.balance)}</span></div>`).join('')}</div></div>` : '<p class="empty">Sin movimientos todavía.</p>'}`;
 }
@@ -470,6 +514,13 @@ function vAccount() {
   <li>Cuando el agente sube el voucher tienes ${c.client_minutes} minutos para responder. Si no respondes, soporte verifica con la entidad y decide.</li>
   <li>Denunciar como falso un voucher real bloquea tu cuenta para siempre.</li>
   <li>Límite actual: ${money(c.max_amount)} por operación.</li></ul></div>
+  <h2 class="sec">Información</h2>
+  <div class="card"><div class="list">
+    <a class="it" href="../index.html"><b>Página web de Agente Móvil P2P</b><span>→</span></a>
+    <a class="it" href="../terminos.html"><b>Términos y condiciones</b><span>→</span></a>
+    <a class="it" href="../privacidad.html"><b>Política de privacidad</b><span>→</span></a>
+    <a class="it" href="../libro-reclamaciones.html"><b>Libro de reclamaciones</b><span>→</span></a>
+  </div></div>
   <button class="btn o" data-act="logout">Cerrar sesión</button>`;
 }
 function vNotes() {
@@ -481,10 +532,15 @@ function vNotes() {
 function person(id) { const p = S.st.profs?.[id]; return p ? `${esc(p.full_name)} <span class="mut">DNI ${esc(p.dni || '—')}</span>` : '—'; }
 function vStaff() {
   const s = S.st, sum = s.sum || {};
-  const tabs = [['depositos', `Depósitos (${s.deps?.length || 0})`], ['casos', `Casos (${(s.cases || []).filter(c => c.status === 'abierto').length})`], ['retiros', `Retiros (${s.wds?.length || 0})`],
+  const tabs = [['recargas', `Recargas (${s.tops?.length || 0})`], ...(s.deps?.length ? [['depositos', `Depósitos antiguos (${s.deps.length})`]] : []), ['casos', `Casos (${(s.cases || []).filter(c => c.status === 'abierto').length})`], ['retiros', `Retiros (${s.wds?.length || 0})`],
     ['identidad', `Verificaciones (${s.kyc?.length || 0})`], ['agentes', 'Agentes'], ['operaciones', 'Operaciones'], ['entidades', 'Entidades'], ['lista', 'Lista negra'], ['reclamos', `Reclamos (${(s.recl || []).filter(r => r.status === 'recibido').length})`], ...(S.me.role === 'admin' ? [['ajustes', 'Ajustes']] : [])];
   let body = '';
   const t = S.staffTab;
+  if (t === 'recargas') body = `<p class="mut">Busca cada abono en la cuenta ${esc(S.cfg.company_bank)} de la empresa: mismo monto, mismo código y que el ordenante sea el titular de la cuenta. Al confirmar, el monto aparece en su saldo virtual.</p>` + (s.tops.length ? s.tops.map(t => `<div class="card"><div class="row"><h3 class="num">${money(t.amount)}</h3><span class="mut">${when(t.created_at)}</span></div>
+    <p style="margin:6px 0">${person(t.user_id)}<br>Código de operación: <b>${esc(t.op_code)}</b></p>
+    ${proofImg('recargas', t.proof_path, 'Constancia de la recarga')}
+    <label class="f" for="tn-${t.id}">Motivo si rechazas</label><input id="tn-${t.id}" placeholder="Ej. El ordenante es otra persona">
+    <div class="grid2"><button class="btn" data-act="stop" data-id="${t.id}" data-ok="1">Llegó: acreditar ${money(t.amount)}</button><button class="btn r" data-act="stop" data-id="${t.id}" data-ok="0">Rechazar</button></div></div>`).join('') : '<p class="empty">No hay recargas por validar.</p>');
   if (t === 'depositos') body = s.deps.length ? s.deps.map(o => `<div class="card"><div class="row"><h3>${esc(o.code)}</h3><b class="num">${money(o.total)}</b></div>
     <p class="mut" style="margin:4px 0">Cliente: ${person(o.client_id)}<br>Código informado: <b>${esc(o.deposit_code)}</b> · ${when(o.created_at)}</p>
     <p style="margin:6px 0">Busca en la cuenta ${esc(S.cfg.company_bank)} de la empresa un abono de <b>${money(o.total)}</b> con ese código, y que el ordenante sea <b>${esc(o.dest_holder)}</b>.</p>
@@ -500,10 +556,10 @@ function vStaff() {
     <div class="grid2"><button class="btn" data-act="scase" data-id="${k.id}" data-ok="1">La transferencia existe: liberar al agente${k.type === 'denuncia' ? ' y bloquear al cliente' : ''}</button>
     <button class="btn r" data-act="scase" data-id="${k.id}" data-ok="0">No existe: devolver al cliente y bloquear al agente</button></div>`
     : `<div class="alert a-ok">${esc(k.resolution || (k.transfer_ok ? 'Transferencia confirmada' : 'Voucher falso'))}</div>`}</div>`; }).join('') : '<p class="empty">Sin casos.</p>';
-  if (t === 'retiros') body = s.wds.length ? s.wds.map(w => `<div class="card"><div class="row"><h3>${money(w.amount)}</h3><span class="mut">${when(w.created_at)}</span></div>
+  if (t === 'retiros') body = `<p class="mut">Transfiere a la cuenta indicada y registra el código. Al marcarlo como pagado, el monto se descuenta automáticamente del saldo de la persona.</p>` + (s.wds.length ? s.wds.map(w => `<div class="card"><div class="row"><h3>${money(w.amount)}</h3><span class="mut">${when(w.created_at)}</span></div>
     <p style="margin:6px 0">${person(w.user_id)}<br>A: <b>${esc(w.entity)} ${esc(w.number)}</b></p>
     <label class="f" for="wc-${w.id}">Código de operación del pago</label><input id="wc-${w.id}" inputmode="numeric">
-    <div class="grid2"><button class="btn" data-act="swd" data-id="${w.id}" data-ok="1">Marcar como pagado</button><button class="btn o" data-act="swd" data-id="${w.id}" data-ok="0">Rechazar y devolver al saldo</button></div></div>`).join('') : '<p class="empty">No hay retiros por pagar.</p>';
+    <div class="grid2"><button class="btn" data-act="swd" data-id="${w.id}" data-ok="1">Marcar como pagado</button><button class="btn o" data-act="swd" data-id="${w.id}" data-ok="0">Rechazar</button></div></div>`).join('') : '<p class="empty">No hay retiros por pagar.</p>');
   if (t === 'identidad') { const withP = s.kyc.filter(p => p.kyc_status === 'en_revision'), noP = s.kyc.filter(p => p.kyc_status === 'pendiente');
     const card = p => `<div class="card"><div class="row"><h3>${esc(p.full_name || 'Sin nombre')}</h3><span class="mut">DNI ${esc(p.dni || '—')}</span></div>
     <p class="mut" style="margin:4px 0">${esc(p.email)} · ${esc(p.phone || '')} · ${esc(p.dept || '')} · registrado ${when(p.created_at)}<br>${p.agent_status === 'solicitado' ? '<span class="tag t-info">Quiere ser agente</span>' : '<span class="tag t-mute">Cliente</span>'}</p>
@@ -514,13 +570,16 @@ function vStaff() {
     <div class="grid2"><button class="btn" data-act="skyc" data-id="${p.id}" data-ok="1">Confirmar verificación${p.agent_status === 'solicitado' ? ' y activar agente' : ''}</button><button class="btn r" data-act="skyc" data-id="${p.id}" data-ok="0">Rechazar</button></div></div>`;
     body = (s.kyc.length ? `${withP.length ? `<h2 class="sec">Enviaron sus fotos (${withP.length})</h2>${withP.map(card).join('')}` : ''}${noP.length ? `<h2 class="sec">Registrados sin fotos (${noP.length})</h2>${noP.map(card).join('')}` : ''}` : '<p class="empty">Nadie está esperando verificación.</p>')
     + (s.flagged.length ? `<h2 class="sec">Cuentas observadas</h2><div class="card">${s.flagged.map(a => `<p>${person(a.user_id)}<br>${esc(a.entity)} ${esc(a.number)} · <span class="tag t-bad">${esc(a.flagged)}</span></p>`).join('')}</div>` : ''); }
-  if (t === 'agentes') body = `<div class="scroll"><table><thead><tr><th>Agente</th><th>Estado</th><th>Strikes</th><th class="n">Saldo</th><th></th></tr></thead><tbody>${s.agents.map(p => {
+  if (t === 'agentes') body = `<div class="scroll"><table><thead><tr><th>Agente</th><th>Estado</th><th>Strikes</th><th class="n">Saldo</th><th class="n">Garantía</th><th></th></tr></thead><tbody>${s.agents.map(p => {
     const susp = p.suspended_until && new Date(p.suspended_until).getTime() > now();
     return `<tr><td>${esc(p.full_name)}<br><span class="mut">${esc(p.dept || '')} · DNI ${esc(p.dni || '')}</span></td><td>${p.banned ? '<span class="tag t-bad">Bloqueado</span>' : p.agent_status === 'solicitado' ? '<span class="tag t-warn">Solicitó</span>' : p.agent_status === 'retirado' ? '<span class="tag t-mute">Sin rol</span>' : susp ? '<span class="tag t-warn">Suspendido</span>' : '<span class="tag t-ok">Activo</span>'}</td>
-    <td>${p.strikes}</td><td class="n">${money(p.wallet)}</td><td>${p.agent_status === 'solicitado' ? `<button class="btn sm" data-act="sagent" data-id="${p.id}" data-ok="1">Activar</button> <button class="btn o sm" data-act="sagent" data-id="${p.id}" data-ok="0">Rechazar</button>` : susp && !p.banned ? `<button class="btn o sm" data-act="sunsusp" data-id="${p.id}">Quitar suspensión</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
+    <td>${p.strikes}</td><td class="n">${money(p.wallet)}</td><td class="n">${money(p.guarantee)}</td><td>${p.agent_status === 'solicitado' ? `<button class="btn sm" data-act="sagent" data-id="${p.id}" data-ok="1">Activar</button> <button class="btn o sm" data-act="sagent" data-id="${p.id}" data-ok="0">Rechazar</button>` : susp && !p.banned ? `<button class="btn o sm" data-act="sunsusp" data-id="${p.id}">Quitar suspensión</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
   if (t === 'operaciones') body = `<div class="scroll"><table><thead><tr><th>Orden</th><th>Destino</th><th class="n">Monto</th><th class="n">Comisión</th><th>Estado</th><th>Creada</th></tr></thead><tbody>${s.recent.map(o => `<tr><td>${esc(o.code)}<br><span class="mut">${esc(o.client_short)}</span></td><td>${esc(o.dest_entity)}</td><td class="n">${money(o.amount)}</td><td class="n">${pctS(o.pct)}</td><td><span class="tag ${ST[o.status][1]}">${ST[o.status][0]}</span></td><td>${when(o.created_at)}</td></tr>`).join('')}</tbody></table></div>`;
   if (t === 'entidades') body = `<p class="mut">Si una entidad tiene caída de servicio, márcala: los relojes de sus operaciones se pausan y al volver se devuelve el tiempo perdido.</p><div class="card">${S.ents.map(e => `<div class="row" style="padding:6px 0;border-top:1px solid var(--line)"><span>${esc(e.name)} ${e.down ? `<span class="tag t-bad">Caída desde ${hm(e.down_since)}</span>` : ''}</span><button class="btn ${e.down ? '' : 'o'} sm" data-act="sdown" data-v="${esc(e.name)}" data-ok="${e.down ? 0 : 1}">${e.down ? 'Ya funciona' : 'Marcar caída'}</button></div>`).join('')}</div>`;
-  if (t === 'lista') body = s.black.length ? `<div class="card">${s.black.map(b => `<div class="row" style="padding:8px 0;border-top:1px solid var(--line)"><span><b>${esc(b.full_name || '—')}</b><br><span class="mut">DNI ${esc(b.dni)} · ${esc(b.reason)}</span></span><span class="mut">${when(b.created_at)}</span></div>`).join('')}</div>` : '<p class="empty">La lista negra está vacía.</p>';
+  if (t === 'lista') body = (s.bannedBal.length ? `<h2 class="sec">Bloqueados con dinero por devolver</h2>${s.bannedBal.map(p => `<div class="card"><div class="row"><b>${esc(p.full_name)}</b><b class="num">${money(+p.wallet + +p.guarantee)}</b></div>
+    <p class="mut" style="margin:4px 0">DNI ${esc(p.dni || '—')} · ${esc(p.phone || '')} · saldo ${money(p.wallet)} · garantía ${money(p.guarantee)}<br>${esc(p.ban_reason || '')}</p>
+    <label class="f" for="bc-${p.id}">Código de operación de la devolución</label><input id="bc-${p.id}" inputmode="numeric">
+    <button class="btn o" data-act="ssettle" data-id="${p.id}">Ya le transferí: registrar devolución</button></div>`).join('')}<h2 class="sec">Lista negra</h2>` : '') + (s.black.length ? `<div class="card">${s.black.map(b => `<div class="row" style="padding:8px 0;border-top:1px solid var(--line)"><span><b>${esc(b.full_name || '—')}</b><br><span class="mut">DNI ${esc(b.dni)} · ${esc(b.reason)}</span></span><span class="mut">${when(b.created_at)}</span></div>`).join('')}</div>` : '<p class="empty">La lista negra está vacía.</p>');
   if (t === 'reclamos') body = `<p class="mut">La ley da 15 días hábiles para responder. Responde por correo al cliente y registra aquí tu respuesta.</p>` + ((s.recl || []).length ? s.recl.map(r => { const days = Math.floor((now() - new Date(r.created_at)) / 864e5);
     return `<div class="card"><div class="row"><h3>${esc(r.code)} · ${r.kind === 'reclamo' ? 'Reclamo' : 'Queja'}</h3><span class="tag ${r.status === 'respondido' ? 't-ok' : days > 10 ? 't-bad' : 't-warn'}">${r.status === 'respondido' ? 'Respondido' : 'Hace ' + days + ' días'}</span></div>
     <p class="mut" style="margin:6px 0">${esc(r.full_name)} · doc. ${esc(r.doc)} · ${esc(r.email)} · ${esc(r.phone || '')}<br>${esc(r.address || '')}</p>
@@ -531,8 +590,8 @@ function vStaff() {
     body = `<div class="card">${F.map(([k, l, ty]) => `<label class="f" for="cfg-${k}">${l}</label><input id="cfg-${k}" type="${ty}" step="any" value="${esc(c[k] ?? '')}">`).join('')}<p class="err" id="cfg-err"></p><button class="btn" data-act="scfg">Guardar ajustes</button></div>
     <div class="card"><h3>Dar rol de soporte</h3><label class="f" for="role-email">Correo del usuario</label><input id="role-email" type="email"><label class="f" for="role-v">Rol</label><select id="role-v"><option value="soporte">Soporte</option><option value="usuario">Usuario normal</option><option value="admin">Administrador</option></select><p class="err" id="role-err"></p><button class="btn o" data-act="srole">Guardar rol</button></div>`; }
   return `<div class="row"><h1>Soporte</h1><button class="btn o sm" data-act="refresh">Actualizar</button></div>
-  <div class="kpis"><button class="kpi go${s.kyc?.length ? ' hot2' : ''}" data-act="stab" data-v="identidad"><span class="mut">Esperando verificación</span><b>${s.kyc?.length || 0} ${s.kyc?.length === 1 ? 'persona' : 'personas'}</b></button><div class="kpi"><span class="mut">En custodia</span><b>${money(sum.custody)}</b></div><div class="kpi"><span class="mut">Saldos de usuarios</span><b>${money(sum.wallets)}</b></div><div class="kpi"><span class="mut">Retiros por pagar</span><b>${money(sum.withdrawals_pending)}</b></div><div class="kpi"><span class="mut">Ganancia de la plataforma</span><b>${money(sum.platform_earned)}</b></div></div>
-  <p class="mut">En la cuenta recaudadora debe haber al menos: custodia + saldos + retiros por pagar = <b class="num">${money(+sum.custody + +sum.wallets + +sum.withdrawals_pending)}</b>, más la ganancia acumulada.</p>
+  <div class="kpis"><button class="kpi go${s.kyc?.length ? ' hot2' : ''}" data-act="stab" data-v="identidad"><span class="mut">Esperando verificación</span><b>${s.kyc?.length || 0} ${s.kyc?.length === 1 ? 'persona' : 'personas'}</b></button><button class="kpi go${s.tops?.length ? ' hot2' : ''}" data-act="stab" data-v="recargas"><span class="mut">Recargas por validar</span><b>${s.tops?.length || 0}</b></button><div class="kpi"><span class="mut">En custodia</span><b>${money(sum.custody)}</b></div><div class="kpi"><span class="mut">Saldos de usuarios</span><b>${money(sum.wallets)}</b></div><div class="kpi"><span class="mut">Garantías de agentes</span><b>${money(sum.guarantees)}</b></div><button class="kpi go${s.wds?.length ? ' hot2' : ''}" data-act="stab" data-v="retiros"><span class="mut">Retiros por pagar</span><b>${money(sum.withdrawals_pending)}</b></button><div class="kpi"><span class="mut">Ganancia de la plataforma</span><b>${money(sum.platform_earned)}</b></div></div>
+  <p class="mut">En la cuenta de la empresa debe haber al menos: custodia + saldos + garantías${+sum.withdrawals_held ? ' + retiros antiguos ya descontados' : ''} = <b class="num">${money(+sum.custody + +sum.wallets + +sum.guarantees + +sum.withdrawals_held)}</b>, más la ganancia acumulada (${money(sum.platform_earned)}).</p>
   <div class="stabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" aria-selected="${t === k}" data-act="stab" data-v="${k}">${l}</button>`).join('')}</div>
   <div style="margin-top:6px">${body}</div>`;
 }
@@ -565,6 +624,7 @@ function render() {
   let body;
   const v = S.view;
   if (v?.k === 'kyc') body = vKyc();
+  else if (v?.k === 'topup') body = vTopup();
   else if (v?.k === 'new') body = vNew();
   else if (v?.k === 'order') body = vOrder(ord(v.id));
   else if (v?.k === 'aorder') body = vAgentOrder(ord(v.id));
@@ -583,10 +643,22 @@ const A = {
   auth: d => { S.auth = d.v; render(); },
   regrole: d => { S.regRole = d.v; render(); },
   eye: (d, b) => { const i = $('#' + d.for); if (!i) return; const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.setAttribute('aria-pressed', show); b.setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña'); b.innerHTML = ic(show ? 'eyeoff' : 'eye'); },
+  topup: () => { if (!verified()) { S.view = { k: 'kyc' }; render(); toast('Primero verificamos tu identidad para que puedas recargar.'); return; } S.view = { k: 'topup' }; render(); window.scrollTo(0, 0); },
+  async sendtopup(d, b) { await run(b, async () => {
+    const amt = +val('t-amt'), code = val('t-code'), f = $('#t-file').files[0];
+    if (!(amt >= 10)) throw new Error('La recarga mínima es S/ 10.00.');
+    if (!/^\d{6,12}$/.test(code)) throw new Error('Escribe el código de operación (6 a 12 dígitos).');
+    const path = await api.upload('recargas', `${meId()}/${Date.now()}.jpg`, await compress(f));
+    await api.rpc('request_topup', { p_amount: amt, p_code: code, p_proof: path });
+    await refresh(); toast('Recibido. Cuando validemos que llegó, verás el monto en tu saldo.'); }, 't-err'); },
+  async gadd(d, b) { await run(b, async () => { const v = +val('g-amt'); if (!(v > 0)) throw new Error('Escribe el monto.'); await api.rpc('add_guarantee', { p_amount: v }); await refresh(); toast('Garantía actualizada.'); }, 'g-err'); },
+  async grel(d, b) { await run(b, async () => { const v = +val('g-amt'); if (!(v > 0)) throw new Error('Escribe el monto.'); await api.rpc('release_guarantee', { p_amount: v }); await refresh(); toast('Garantía liberada a tu saldo.'); }, 'g-err'); },
+  stop: async (d, b) => run(b, async () => { const ok = d.ok === '1', note = val('tn-' + d.id); if (!ok && !note) throw new Error('Escribe el motivo del rechazo.'); await api.rpc('review_topup', { p_id: +d.id, p_ok: ok, p_note: note || null }); await refresh(); toast(ok ? 'Recarga acreditada al saldo.' : 'Recarga rechazada.'); }),
+  ssettle: async (d, b) => run(b, async () => { const code = val('bc-' + d.id); if (!code) throw new Error('Escribe el código de operación de la devolución.'); await api.rpc('staff_settle_banned', { p_user: d.id, p_code: code }); await refresh(); toast('Devolución registrada.'); }),
   kycview: () => { S.view = { k: 'kyc' }; render(); window.scrollTo(0, 0); },
   async login(d, b) { await run(b, async () => { const e = val('l-email'), p = $('#l-pass').value; if (!e || !p) throw new Error('Escribe tu correo y contraseña.'); await api.signIn(e, p); await start(); }, 'l-err'); },
   async register(d, b) { await run(b, async () => {
-    const v = { rol: S.regRole, full_name: val('r-name'), dni: val('r-dni'), phone: val('r-phone'), dept: val('r-dept'), email: val('r-email'), password: $('#r-pass').value };
+    const v = { rol: S.regRole, full_name: upper(val('r-name')).trim(), dni: val('r-dni'), phone: val('r-phone'), dept: val('r-dept'), email: val('r-email'), password: $('#r-pass').value };
     if (v.full_name.split(/\s+/).length < 2) throw new Error('Escribe tus nombres y apellidos.');
     if (!/^\d{8}$/.test(v.dni)) throw new Error('El DNI tiene 8 dígitos.');
     if (!/^9\d{8}$/.test(v.phone)) throw new Error('El celular tiene 9 dígitos y empieza con 9.');
@@ -601,7 +673,7 @@ const A = {
   async logout() { await api.signOut(); location.reload(); },
   async refresh(d, b) { await run(b, async () => { await api.rpc('tick').catch(() => {}); await refresh(); }); },
   async kyc(d, b) { await run(b, async () => {
-    const name = val('k-name'), dni = val('k-dni'), f1 = $('#k-doc').files[0], f2 = $('#k-self').files[0];
+    const name = upper(val('k-name')).trim(), dni = val('k-dni'), f1 = $('#k-doc').files[0], f2 = $('#k-self').files[0];
     if (!/^\d{8}$/.test(dni)) throw new Error('El DNI tiene 8 dígitos.');
     if (!f1 || !f2) throw new Error('Sube las dos fotos.');
     const id = meId(), t = Date.now();
@@ -613,9 +685,9 @@ const A = {
   go: d => { S.tab = d.tab; S.view = d.view ? { k: d.view } : null; render(); },
   notes: () => { S.prevTab = S.tab; S.view = { k: 'notes' }; render(); window.scrollTo(0, 0); if (S.notes.some(n => !n.read)) api.markRead(meId()).then(() => { S.notes.forEach(n => n.read = true); }); },
   note: d => { if (!d.id) return; const o = ord(d.id); if (!o) return; if (o.client_id === meId()) { S.tab = 'home'; S.view = { k: 'order', id: o.id }; } else if (o.agent_id === meId()) { S.tab = 'agent'; S.view = { k: 'aorder', id: o.id }; } else if (isStaff()) { S.tab = 'staff'; S.view = null; } render(); },
-  new: () => { if (!verified()) { S.view = { k: 'kyc' }; render(); toast('Primero verificamos tu identidad para que puedas operar.'); return; } const c = S.cfg; S.draft = S.draft || { funding: 'deposito', acc: null, amount: 1000, pct: +c.default_pct }; S.view = { k: 'new' }; render(); window.scrollTo(0, 0); },
+  new: () => { if (!verified()) { S.view = { k: 'kyc' }; render(); toast('Primero verificamos tu identidad para que puedas operar.'); return; } const c = S.cfg; S.draft = S.draft || { funding: 'saldo', acc: null, amount: 1000, pct: +c.default_pct }; S.view = { k: 'new' }; render(); window.scrollTo(0, 0); },
   async create(d, b) { await run(b, async () => {
-    const x = S.draft; const id = await api.rpc('create_order', { p_dest_account: +x.acc, p_amount: +x.amount, p_pct: +x.pct, p_funding: x.funding });
+    const x = S.draft; const id = await api.rpc('create_order', { p_dest_account: +x.acc, p_amount: +x.amount, p_pct: +x.pct, p_funding: 'saldo' });
     await refresh(); S.view = { k: 'order', id }; render(); window.scrollTo(0, 0); }, 'd-err'); },
   open: d => { S.tab = 'home'; S.view = { k: 'order', id: +d.id }; render(); window.scrollTo(0, 0); },
   aopen: d => { S.tab = 'agent'; S.view = { k: 'aorder', id: +d.id }; render(); window.scrollTo(0, 0); },
@@ -644,7 +716,7 @@ const A = {
     await api.rpc('submit_voucher', { p_order: +d.id, p_code: code, p_path: path }); await refresh(); toast('Enviado. Esperamos la confirmación del cliente.'); }, 'v-err'); },
   giveup: d => { S.sheet = { type: 'confirm', title: '¿No puedes hacer la transferencia?', text: `El dinero vuelve al cliente y sumas un strike. Con ${S.cfg.strikes_max} pierdes el rol de agente.`, yes: 'Sí, liberar la orden', danger: true, fn: () => api.rpc('agent_give_up', { p_order: +d.id }) }; render(); },
   mismatch: d => { S.sheet = { type: 'confirm', title: 'El titular no coincide', text: 'No transfieras. La orden se cancela sin strike para ti y la cuenta queda observada.', input: '¿Qué nombre muestra tu banca?', yes: 'Reportar y cancelar', danger: true, fn: v => { if (!v) throw new Error('Escribe el nombre que aparece.'); return api.rpc('report_holder_mismatch', { p_order: +d.id, p_seen: v }); }, done: 'Reportado. Gracias por cuidar la plataforma.' }; render(); },
-  async withdraw(d, b) { await run(b, async () => { await api.rpc('request_withdrawal', { p_account: +val('w-acc'), p_amount: +val('w-amt') }); await refresh(); toast('Retiro solicitado.'); }, 'w-err'); },
+  async withdraw(d, b) { await run(b, async () => { await api.rpc('request_withdrawal', { p_account: +val('w-acc'), p_amount: +val('w-amt') }); await refresh(); toast('Retiro solicitado. Se descontará de tu saldo cuando soporte confirme el pago.'); }, 'w-err'); },
   async addacc(d, b) { await run(b, async () => { await api.rpc('add_account', { p_entity: val('a-ent'), p_number: val('a-num') }); await refresh(); toast('Cuenta agregada.'); }, 'a-err'); },
   rmacc: d => { S.sheet = { type: 'confirm', title: '¿Quitar esta cuenta?', text: 'Podrás agregarla de nuevo cuando quieras.', yes: 'Quitar', fn: () => api.rpc('remove_account', { p_id: +d.id }) }; render(); },
   perm: () => { try { Notification.requestPermission().then(render); } catch {} },
@@ -669,13 +741,14 @@ document.addEventListener('click', e => {
   e.preventDefault(); f(b.dataset, b);
 });
 document.addEventListener('input', e => {
-  const t = e.target, d = S.draft; if (!d) return;
+  const t = e.target;
+  if (t.id === 'r-name' || t.id === 'k-name') { const p = t.selectionStart; t.value = t.value.toUpperCase(); try { t.setSelectionRange(p, p); } catch {} }
+  const d = S.draft; if (!d) return;
   if (t.id === 'd-amt') { d.amount = t.value; updSum(); }
   if (t.id === 'd-pct') { d.pct = +t.value; updSum(); }
 });
 document.addEventListener('change', e => {
   const t = e.target, d = S.draft; if (!d) return;
-  if (t.id === 'd-fund') { d.funding = t.value; render(); }
   if (t.id === 'd-acc') d.acc = +t.value;
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.sheet) { S.sheet = null; render(); } });

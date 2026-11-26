@@ -8,7 +8,7 @@ Plataforma donde los clientes mueven **su propio dinero** entre sus cuentas de d
 | `app/` | La app para clientes, agentes y soporte. Se instala en el celular (PWA) |
 | `app/config.js` | **Tus datos de Supabase** (URL y clave pública) |
 | `supabase/schema.sql` | La base de datos completa: tablas, reglas de dinero, seguridad y archivos privados |
-| `supabase/tests/` | Pruebas automáticas de todos los flujos de dinero (79 comprobaciones) |
+| `supabase/tests/` | Pruebas automáticas de todos los flujos de dinero (89 comprobaciones) |
 | `android/` | App Android (abre la app web y permite subir fotos) |
 | `terminos.html`, `privacidad.html` | **Borradores** legales para revisar con un abogado |
 | `libro-reclamaciones.html` | Libro de Reclamaciones virtual, conectado a la base de datos |
@@ -58,7 +58,7 @@ Vuelve a pegar TODO `supabase/schema.sql` en **SQL Editor → New query → Run*
    update public.profiles set role = 'admin', kyc_status = 'aprobado' where email = 'tucorreo@gmail.com';
    ```
 3. Cierra sesión y vuelve a entrar. Verás la pestaña **Soporte**.
-4. En **Soporte → Ajustes** escribe la **cuenta recaudadora** de la empresa. Hasta que lo hagas, nadie puede crear órdenes con depósito.
+4. En **Soporte → Ajustes** escribe la **cuenta de la empresa** donde los usuarios recargan saldo. Hasta que lo hagas, nadie puede recargar.
 
 ### 7. Antes de mover dinero real
 - [ ] **Cuenta recaudadora:** usa una cuenta empresarial a nombre de la empresa, y explícale el modelo al banco antes. Muchos depósitos de distintas personas en una cuenta común pueden hacer que el banco la congele.
@@ -76,16 +76,20 @@ Vuelve a pegar TODO `supabase/schema.sql` en **SQL Editor → New query → Run*
 
 ## Cómo funciona por dentro
 
+- **Recargas y saldo virtual.** El usuario toca *Recargar saldo*, transfiere a la cuenta de la empresa y sube la constancia. Soporte lo valida en **Soporte → Recargas** y el mismo monto aparece en su saldo virtual. Las órdenes se pagan con ese saldo.
+- **Retiros.** El usuario pide el retiro a una cuenta suya registrada; el monto queda reservado. Soporte transfiere y lo marca como pagado en **Soporte → Retiros**: en ese momento se descuenta del saldo.
+- **Garantía del agente.** El agente pasa saldo a garantía y solo puede aceptar órdenes de hasta ese monto. Puede liberarla a su saldo cuando no tiene órdenes en curso.
+- **Una cuenta por persona.** El DNI, el celular y el correo no se pueden repetir. Los nombres se guardan en mayúsculas.
 - **Registro como cliente o agente.** Cualquier persona registrada entra a la app y ve las órdenes publicadas, pero solo opera cuando soporte confirma su identidad (Soporte → Verificaciones). Si se registró como agente, al confirmar su identidad queda activo como agente.
 - **Ninguna pantalla cambia saldos.** La app solo llama funciones de la base de datos (`create_order`, `accept_order`, `client_confirm`, `resolve_case`, etc.). Cada función valida quién eres, qué te toca y el estado de la orden.
 - **Cada quien ve solo lo suyo** (seguridad por filas). El agente no ve la cuenta del cliente hasta que acepta la orden.
 - **Capturas y fotos privadas.** Se comprimen a unos 150 KB en el celular y se guardan en almacenamiento privado. Solo las ven las partes de la orden y soporte.
 - **Relojes:** pg_cron revisa cada minuto. Si el agente no sube el voucher a tiempo, el dinero vuelve al saldo del cliente y el agente suma un strike. Si el cliente no responde, la orden pasa a soporte.
-- **Cuadre:** el panel de soporte muestra cuánto debe haber en la cuenta recaudadora (custodia + saldos + retiros por pagar).
+- **Cuadre:** el panel de soporte muestra cuánto debe haber en la cuenta de la empresa (custodia + saldos + garantías, más la ganancia).
 
 ### Estados de una orden
-`deposito_pendiente` → `deposito_revision` → `publicada` → `aceptada` (20 min) → `confirmacion` (60 min) → `completada`
-Salidas: `reembolsada` (el agente no transfirió, voucher falso o titular no coincide), `revision` (soporte decide), `cancelada`, `rechazada` (depósito de un tercero).
+`publicada` (pagada con saldo) → `aceptada` (20 min) → `confirmacion` (60 min) → `completada`
+Salidas: `reembolsada` (el agente no transfirió, voucher falso o titular no coincide), `revision` (soporte decide), `cancelada`. Los estados `deposito_pendiente`, `deposito_revision` y `rechazada` solo quedan para órdenes antiguas.
 
 ## Probar en tu computadora (para desarrolladores)
-Requiere PostgreSQL 16 y Python 3: `sh supabase/tests/correr.sh` corre los 79 casos de dinero. GitHub también los corre solo en cada cambio de `supabase/` (Actions → Pruebas de la base de datos).
+Requiere PostgreSQL 16 y Python 3: `sh supabase/tests/correr.sh` corre los 89 casos de dinero. GitHub también los corre solo en cada cambio de `supabase/` (Actions → Pruebas de la base de datos).

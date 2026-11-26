@@ -10,7 +10,7 @@ from psycopg2 import sql
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FILES = '/tmp/amp-files'
 DB = dict(host='/tmp/pg', port=5544, user='postgres', dbname=os.environ.get('AMP_DB', 't'))
-TABLES = {'profiles','settings','entities','bank_accounts','orders','order_events','cases','wallet_ledger','withdrawals','notifications','blacklist','complaints'}
+TABLES = {'profiles','settings','entities','bank_accounts','orders','order_events','cases','wallet_ledger','withdrawals','notifications','blacklist','complaints','topups'}
 
 def conv(o):
     if isinstance(o, decimal.Decimal): return str(o)
@@ -56,7 +56,7 @@ class H(BaseHTTPRequestHandler):
             self.send(200, {'data': data})
         except psycopg2.Error as e:
             m = e.diag.message_primary or str(e)
-            if 'profiles_dni_key' in m: m = 'Database error saving new user'
+            if self.path.strip('/') == 'signup': m = 'Database error saving new user'
             self.send(200, {'error': m})
 
     def r_login(self, cur, b):

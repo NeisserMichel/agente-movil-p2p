@@ -70,12 +70,25 @@ create table if not exists public.profiles (
   banned           boolean not null default false,
   ban_reason       text,
   wallet           numeric(12,2) not null default 0 check (wallet >= 0),
+  guarantee        numeric(12,2) not null default 0 check (guarantee >= 0),
   mismatch_reports int not null default 0,
   created_at       timestamptz not null default now()
 );
--- El DNI queda reservado solo cuando soporte aprueba la identidad (así nadie bloquea el DNI de otra persona registrándose primero)
+alter table public.profiles add column if not exists guarantee numeric(12,2) not null default 0;
+do $$ begin
+  alter table public.profiles add constraint profiles_guarantee_check check (guarantee >= 0);
+exception when duplicate_object then null; end $$;
+
+-- Una persona = una cuenta: el DNI y el celular no se pueden repetir (salvo en cuentas rechazadas por soporte,
+-- para que un impostor no bloquee para siempre el DNI de otra persona). El correo ya es único por Supabase.
 drop index if exists public.profiles_dni_key;
-create unique index if not exists profiles_dni_approved_key on public.profiles(dni) where kyc_status = 'aprobado';
+drop index if exists public.profiles_dni_approved_key;
+do $$ begin
+  create unique index if not exists profiles_dni_unique on public.profiles(dni) where dni is not null and kyc_status <> 'rechazado';
+  create unique index if not exists profiles_phone_unique on public.profiles(phone) where phone is not null and phone <> '' and kyc_status <> 'rechazado';
+exception when unique_violation then
+  raise notice 'Hay DNI o celulares repetidos en cuentas existentes: revísalos en Soporte. (%)', sqlerrm;
+end $$;
 
 -- Lista negra biométrica (DNI + fotos del registro)
 create table if not exists public.blacklist (
@@ -97,10 +110,10 @@ declare v_dni text := nullif(regexp_replace(coalesce(new.raw_user_meta_data->>'d
 begin
   select * into v_bl from public.blacklist where dni = v_dni limit 1;
   insert into public.profiles (id, email, full_name, dni, phone, dept, banned, ban_reason, agent_status)
-  values (new.id, new.email,
-          coalesce(trim(new.raw_user_meta_data->>'full_name'),''),
+  values (new.id, lower(new.email),
+          upper(regexp_replace(trim(coalesce(new.raw_user_meta_data->>'full_name','')),'\s+',' ','g')),
           v_dni,
-          new.raw_user_meta_data->>'phone',
+          nullif(regexp_replace(coalesce(new.raw_user_meta_data->>'phone',''),'\D','','g'),''),
           new.raw_user_meta_data->>'dept',
           v_bl.id is not null,
           case when v_bl.id is not null then 'DNI en lista negra: '||v_bl.reason end,
@@ -108,7 +121,7 @@ begin
   if v_bl.id is null then
     insert into public.notifications (user_id, title, body)
     select id, 'Nuevo registro por verificar',
-           coalesce(trim(new.raw_user_meta_data->>'full_name'),'') || ' · DNI ' || coalesce(v_dni,'—') ||
+           upper(coalesce(trim(new.raw_user_meta_data->>'full_name'),'')) || ' · DNI ' || coalesce(v_dni,'—') ||
            case when new.raw_user_meta_data->>'rol' = 'agente' then ' · quiere ser agente' else ' · cliente' end
       from public.profiles where role in ('soporte','admin') and not banned;
   end if;
@@ -235,6 +248,27 @@ create table if not exists public.withdrawals (
   done_at     timestamptz
 );
 
+-- Antes los retiros se descontaban al pedirlos; ahora se descuentan cuando soporte los confirma.
+alter table public.withdrawals add column if not exists debited boolean;
+update public.withdrawals set debited = true where debited is null;
+alter table public.withdrawals alter column debited set default false;
+alter table public.withdrawals alter column debited set not null;
+
+-- Recargas: el cliente deposita a la cuenta de la empresa y soporte acredita el mismo monto a su saldo virtual
+create table if not exists public.topups (
+  id          bigint generated always as identity primary key,
+  user_id     uuid not null references public.profiles(id),
+  amount      numeric(12,2) not null check (amount > 0),
+  op_code     text not null,
+  proof_path  text not null,
+  status      text not null default 'pendiente' check (status in ('pendiente','aprobada','rechazada')),
+  note        text,
+  done_by     uuid,
+  done_at     timestamptz,
+  created_at  timestamptz not null default now()
+);
+create index if not exists topups_user_idx on public.topups(user_id, created_at desc);
+
 -- ---------------------------------------------------------------------
 -- 7. NOTIFICACIONES
 -- ---------------------------------------------------------------------
@@ -296,6 +330,13 @@ begin
   return v;
 end $$;
 
+-- Saldo que se puede usar: el saldo menos los retiros que aún esperan confirmación
+create or replace function app_private.available(p_user uuid) returns numeric
+language sql stable security definer set search_path = public as $$
+  select coalesce((select wallet from public.profiles where id = p_user),0)
+       - coalesce((select sum(amount) from public.withdrawals where user_id = p_user and status = 'pendiente' and not debited),0);
+$$;
+
 -- Libera el dinero al agente: monto + su parte de la comisión
 create or replace function app_private.liquidate(p_order bigint, p_by text)
 returns void language plpgsql security definer set search_path = public as $$
@@ -344,12 +385,19 @@ end $$;
 
 create or replace function app_private.ban(p_user uuid, p_reason text)
 returns void language plpgsql security definer set search_path = public as $$
-declare p public.profiles;
+declare p public.profiles; o public.orders;
 begin
   update public.profiles set banned = true, ban_reason = p_reason, agent_status = case when agent_status = 'no' then 'no' else 'retirado' end
    where id = p_user returning * into p;
   insert into public.blacklist (dni, full_name, reason, user_id, selfie_path)
   values (coalesce(p.dni,'sin-dni'), p.full_name, p_reason, p.id, p.selfie_path);
+  for o in select * from public.orders where client_id = p_user and status = 'publicada' loop
+    perform app_private.refund(o.id, 'cuenta bloqueada');
+    update public.orders set status = 'cancelada' where id = o.id;
+  end loop;
+  update public.orders set status = 'cancelada', closed_at = now() where client_id = p_user and status = 'deposito_pendiente';
+  update public.withdrawals set status = 'rechazado', note = 'Cuenta bloqueada', done_at = now()
+   where user_id = p_user and status = 'pendiente' and not debited;
 end $$;
 
 create or replace function app_private.open_case(p_order bigint, p_type text)
@@ -415,16 +463,16 @@ begin
   if length(trim(coalesce(p_full_name,''))) < 5 then raise exception 'Escribe tus nombres y apellidos completos, como en tu DNI.'; end if;
   if p_dni_photo is null or p_selfie is null then raise exception 'Sube la foto de tu DNI y tu selfie.'; end if;
   if p_dni_photo not like auth.uid()::text || '/%' or p_selfie not like auth.uid()::text || '/%' then raise exception 'Archivo no válido.'; end if;
-  if exists (select 1 from public.profiles where dni = v_dni and id <> p.id and kyc_status in ('aprobado','en_revision'))
-    then raise exception 'Ese DNI ya tiene una cuenta verificada o en revisión. Si no fuiste tú, escríbenos.'; end if;
+  if exists (select 1 from public.profiles where dni = v_dni and id <> p.id and kyc_status <> 'rechazado')
+    then raise exception 'Ese DNI ya tiene una cuenta. Si no fuiste tú, escríbenos.'; end if;
   select * into bl from public.blacklist where dni = v_dni limit 1;
   if bl.id is not null then
     update public.profiles set banned = true, ban_reason = 'DNI en lista negra: ' || bl.reason, dni = v_dni where id = p.id;
     return 'bloqueado';
   end if;
-  update public.profiles set full_name = trim(p_full_name), dni = v_dni, dni_photo_path = p_dni_photo, selfie_path = p_selfie,
+  update public.profiles set full_name = upper(regexp_replace(trim(p_full_name),'\s+',' ','g')), dni = v_dni, dni_photo_path = p_dni_photo, selfie_path = p_selfie,
          kyc_status = 'en_revision', kyc_note = null where id = p.id;
-  perform app_private.notify_staff('Nueva verificación de identidad', trim(p_full_name) || ' · DNI ' || v_dni, null);
+  perform app_private.notify_staff('Nueva verificación de identidad', upper(trim(p_full_name)) || ' · DNI ' || v_dni, null);
   return 'en_revision';
 end $$;
 
@@ -477,24 +525,22 @@ declare p public.profiles := app_private.me(); c public.settings := app_private.
         v_fee numeric; v_agent numeric; v_total numeric; v_id bigint; v_short text;
 begin
   if p.kyc_status <> 'aprobado' then raise exception 'Primero verificamos tu identidad.'; end if;
-  if p_funding not in ('deposito','saldo') then raise exception 'Forma de pago no válida.'; end if;
+  if p_funding <> 'saldo' then raise exception 'Las órdenes se pagan con tu saldo virtual. Primero recarga saldo.'; end if;
   select * into a from public.bank_accounts where id = p_dest_account and user_id = p.id and active;
   if a.id is null then raise exception 'Elige una de tus cuentas registradas.'; end if;
   if a.flagged is not null then raise exception 'Esa cuenta está observada: %', a.flagged; end if;
   if p_amount is null or p_amount < c.min_amount then raise exception 'El monto mínimo es %.', app_private.money(c.min_amount); end if;
   if p_amount > c.max_amount then raise exception 'Por ahora el límite es % por operación.', app_private.money(c.max_amount); end if;
   if p_pct is null or p_pct < c.default_pct or p_pct > c.max_pct then raise exception '%', 'La comisión debe estar entre ' || c.default_pct || '% y ' || c.max_pct || '%.'; end if;
-  if p_funding = 'deposito' then
-    if c.company_account = 'POR-CONFIGURAR' then raise exception 'La empresa aún no configuró su cuenta recaudadora. Intenta más tarde.'; end if;
-    if a.entity = c.company_bank then raise exception 'Tu depósito sale de tu cuenta %. Elige una cuenta destino en otra entidad.', c.company_bank; end if;
-    if not exists (select 1 from public.bank_accounts where user_id = p.id and entity = c.company_bank and active)
-      then raise exception 'Registra primero tu cuenta % a tu nombre: desde ahí haces el depósito.', c.company_bank; end if;
-  end if;
+
   if (select count(*) from public.orders where client_id = p.id and status in ('deposito_pendiente','deposito_revision','publicada','aceptada','confirmacion','revision')) >= 3
     then raise exception 'Tienes 3 órdenes en curso. Espera a que terminen.'; end if;
   v_fee := round(p_amount * p_pct / 100, 2);
   v_agent := round(v_fee * c.agent_share, 2);
   v_total := p_amount + v_fee;
+  if app_private.available(p.id) < v_total then
+    raise exception 'Tu saldo disponible es %. Necesitas % (monto + comisión). Recarga saldo.', app_private.money(app_private.available(p.id)), app_private.money(v_total);
+  end if;
   v_short := split_part(p.full_name,' ',1) || ' ' || left(split_part(p.full_name,' ',2),1) || '.';
   insert into public.orders (client_id, dest_account_id, dest_entity, dest_number, dest_holder, client_short, client_dept,
                              amount, pct, fee, agent_fee, platform_fee, total, funding, status)
@@ -623,6 +669,8 @@ begin
   if o.client_id = p.id then raise exception 'No puedes tomar tu propia orden.'; end if;
   if not exists (select 1 from public.bank_accounts where user_id = p.id and entity = o.dest_entity and active)
     then raise exception 'Necesitas una cuenta en % para tomar esta orden.', o.dest_entity; end if;
+  if p.guarantee < o.amount then
+    raise exception 'Tu garantía es %. Solo puedes aceptar órdenes de hasta ese monto.', app_private.money(p.guarantee); end if;
   update public.orders set status = 'aceptada', agent_id = p.id, accepted_at = now(),
          agent_deadline = now() + make_interval(mins => c.agent_minutes) where id = o.id;
   perform app_private.ev(o.id, p.full_name || ' aceptó la orden. Tiene ' || c.agent_minutes || ' minutos para transferir.');
@@ -732,9 +780,8 @@ begin
   select * into a from public.bank_accounts where id = p_account and user_id = p.id and active and flagged is null;
   if a.id is null then raise exception 'Elige una de tus cuentas.'; end if;
   if p_amount is null or p_amount <= 0 then raise exception 'Monto no válido.'; end if;
-  if p_amount > p.wallet then raise exception 'Tu saldo es %.', app_private.money(p.wallet); end if;
-  insert into public.withdrawals (user_id, account_id, entity, number, amount) values (p.id, a.id, a.entity, a.number, p_amount) returning id into v_id;
-  perform app_private.wallet_move(p.id, -p_amount, 'retiro', null, 'Retiro a ' || a.entity || ' ' || a.number);
+  if p_amount > app_private.available(p.id) then raise exception 'Tu saldo disponible es %.', app_private.money(app_private.available(p.id)); end if;
+  insert into public.withdrawals (user_id, account_id, entity, number, amount, debited) values (p.id, a.id, a.entity, a.number, p_amount, false) returning id into v_id;
   perform app_private.notify_staff('Retiro por pagar', p.full_name || ' · ' || app_private.money(p_amount) || ' a ' || a.entity, null);
   return v_id;
 end $$;
@@ -748,10 +795,16 @@ begin
    where id = p_id and status = 'pendiente' returning * into w;
   if w.id is null then raise exception 'El retiro ya fue procesado.'; end if;
   if p_paid then
-    perform app_private.notify(w.user_id, 'Retiro pagado', app_private.money(w.amount) || ' enviados a tu ' || w.entity || '. Operación ' || coalesce(p_code,'-') || '.', null);
+    if not w.debited then
+      perform app_private.wallet_move(w.user_id, -w.amount, 'retiro', null, 'Retiro a ' || w.entity || ' ' || w.number || ' (op. ' || coalesce(p_code,'-') || ')');
+      update public.withdrawals set debited = true where id = w.id;
+    end if;
+    perform app_private.notify(w.user_id, 'Retiro pagado', app_private.money(w.amount) || ' enviados a tu ' || w.entity || '. Operación ' || coalesce(p_code,'-') || '. Se descontó de tu saldo.', null);
   else
-    perform app_private.wallet_move(w.user_id, w.amount, 'retiro_devuelto', null, 'Retiro rechazado: ' || coalesce(p_code,''));
-    perform app_private.notify(w.user_id, 'Retiro rechazado', 'Devolvimos ' || app_private.money(w.amount) || ' a tu saldo. ' || coalesce(p_code,''), null);
+    if w.debited then
+      perform app_private.wallet_move(w.user_id, w.amount, 'retiro_devuelto', null, 'Retiro rechazado: ' || coalesce(p_code,''));
+    end if;
+    perform app_private.notify(w.user_id, 'Retiro rechazado', 'Tu saldo sigue disponible. ' || coalesce(p_code,''), null);
   end if;
 end $$;
 
@@ -788,19 +841,100 @@ begin
   if not found then raise exception 'No existe un usuario con ese correo.'; end if;
 end $$;
 
+-- Recargar saldo: el usuario reporta su depósito a la cuenta de la empresa
+create or replace function public.request_topup(p_amount numeric, p_code text, p_proof text)
+returns bigint language plpgsql security definer set search_path = public as $$
+declare p public.profiles := app_private.me(); c public.settings := app_private.cfg(); v_id bigint;
+begin
+  if p.kyc_status <> 'aprobado' then raise exception 'Primero verificamos tu identidad. Luego podrás recargar saldo.'; end if;
+  if c.company_account = 'POR-CONFIGURAR' then raise exception 'La empresa aún no configuró su cuenta para recargas. Intenta más tarde.'; end if;
+  if p_amount is null or p_amount < 10 then raise exception 'La recarga mínima es S/ 10.00.'; end if;
+  if p_amount > 50000 then raise exception 'La recarga máxima es S/ 50,000.00 por operación.'; end if;
+  if coalesce(p_code,'') !~ '^\d{6,12}$' then raise exception 'Escribe el código de operación (6 a 12 dígitos).'; end if;
+  if p_proof is null or p_proof not like auth.uid()::text || '/%' then raise exception 'Sube la captura de tu transferencia.'; end if;
+  if (select count(*) from public.topups where user_id = p.id and status = 'pendiente') >= 3 then raise exception 'Tienes 3 recargas esperando validación.'; end if;
+  if exists (select 1 from public.topups where op_code = p_code and status <> 'rechazada') then raise exception 'Ese código de operación ya fue reportado.'; end if;
+  insert into public.topups (user_id, amount, op_code, proof_path) values (p.id, p_amount, p_code, p_proof) returning id into v_id;
+  perform app_private.notify_staff('Recarga por validar', p.full_name || ' · ' || app_private.money(p_amount) || ' · op. ' || p_code, null);
+  return v_id;
+end $$;
+
+-- Soporte confirma en la cuenta de la empresa que el dinero llegó y que el titular es el usuario
+create or replace function public.review_topup(p_id bigint, p_ok boolean, p_note text)
+returns void language plpgsql security definer set search_path = public as $$
+declare t public.topups;
+begin
+  if not public.is_staff() then raise exception 'Solo soporte.'; end if;
+  update public.topups set status = case when p_ok then 'aprobada' else 'rechazada' end, note = p_note, done_by = auth.uid(), done_at = now()
+   where id = p_id and status = 'pendiente' returning * into t;
+  if t.id is null then raise exception 'La recarga ya fue revisada.'; end if;
+  if p_ok then
+    perform app_private.wallet_move(t.user_id, t.amount, 'recarga', null, 'Recarga validada (op. ' || t.op_code || ')');
+    perform app_private.notify(t.user_id, 'Recarga acreditada', 'Se sumaron ' || app_private.money(t.amount) || ' a tu saldo virtual.', null);
+  else
+    perform app_private.notify(t.user_id, 'Recarga rechazada', coalesce(p_note, 'No encontramos tu depósito o el titular no coincide con tu DNI.'), null);
+  end if;
+end $$;
+
+-- Garantía del agente: limita el monto de las órdenes que puede aceptar
+create or replace function public.add_guarantee(p_amount numeric)
+returns void language plpgsql security definer set search_path = public as $$
+declare p public.profiles := app_private.me();
+begin
+  if p.agent_status not in ('solicitado','activo') then raise exception 'La garantía es para agentes.'; end if;
+  if p_amount is null or p_amount <= 0 then raise exception 'Monto no válido.'; end if;
+  if p_amount > app_private.available(p.id) then raise exception 'Tu saldo disponible es %. Recarga saldo primero.', app_private.money(app_private.available(p.id)); end if;
+  perform app_private.wallet_move(p.id, -p_amount, 'garantia', null, 'Pasé a garantía');
+  update public.profiles set guarantee = guarantee + p_amount where id = p.id;
+end $$;
+
+create or replace function public.release_guarantee(p_amount numeric)
+returns void language plpgsql security definer set search_path = public as $$
+declare p public.profiles := app_private.me();
+begin
+  if p_amount is null or p_amount <= 0 or p_amount > p.guarantee then raise exception 'Tu garantía es %.', app_private.money(p.guarantee); end if;
+  if exists (select 1 from public.orders where agent_id = p.id and status in ('aceptada','confirmacion','revision'))
+    then raise exception 'Tienes una orden en curso. Libera tu garantía cuando termine.'; end if;
+  update public.profiles set guarantee = guarantee - p_amount where id = p.id;
+  perform app_private.wallet_move(p.id, p_amount, 'garantia_liberada', null, 'Liberé garantía a mi saldo');
+end $$;
+
+-- Devolver a una persona bloqueada su saldo y su garantía (soporte transfiere a mano y registra la operación)
+create or replace function public.staff_settle_banned(p_user uuid, p_code text)
+returns numeric language plpgsql security definer set search_path = public as $$
+declare p public.profiles; v numeric;
+begin
+  if not public.is_staff() then raise exception 'Solo soporte.'; end if;
+  select * into p from public.profiles where id = p_user for update;
+  if p.id is null or not p.banned then raise exception 'Solo para cuentas bloqueadas.'; end if;
+  if coalesce(p_code,'') = '' then raise exception 'Escribe el código de operación de la devolución.'; end if;
+  v := p.wallet + p.guarantee;
+  if v <= 0 then raise exception 'No tiene saldo por devolver.'; end if;
+  if p.guarantee > 0 then
+    update public.profiles set guarantee = 0, wallet = wallet + p.guarantee where id = p.id;
+    insert into public.wallet_ledger (user_id, amount, balance, kind, note) values (p.id, p.guarantee, p.wallet + p.guarantee, 'garantia_liberada', 'Garantía liberada por bloqueo');
+  end if;
+  perform app_private.wallet_move(p.id, -v, 'devolucion_bloqueo', null, 'Saldo devuelto por soporte (op. ' || p_code || ')');
+  return v;
+end $$;
+
 -- Cuadre del dinero: lo que debe haber en la cuenta de la empresa
+drop function if exists public.admin_summary();
 create or replace function public.admin_summary()
-returns table (custody numeric, wallets numeric, withdrawals_pending numeric, platform_earned numeric,
-               orders_completed bigint, open_cases bigint, deposits_to_check bigint)
+returns table (custody numeric, wallets numeric, guarantees numeric, withdrawals_pending numeric, withdrawals_held numeric,
+               platform_earned numeric, orders_completed bigint, open_cases bigint, deposits_to_check bigint, topups_to_check bigint)
 language sql stable security definer set search_path = public as $$
   select
     (select coalesce(sum(total),0) from public.orders where status in ('publicada','aceptada','confirmacion','revision')),
     (select coalesce(sum(wallet),0) from public.profiles),
+    (select coalesce(sum(guarantee),0) from public.profiles),
     (select coalesce(sum(amount),0) from public.withdrawals where status = 'pendiente'),
+    (select coalesce(sum(amount),0) from public.withdrawals where status = 'pendiente' and debited),
     (select coalesce(sum(platform_fee),0) from public.orders where status = 'completada'),
     (select count(*) from public.orders where status = 'completada'),
     (select count(*) from public.cases where status = 'abierto'),
-    (select count(*) from public.orders where status = 'deposito_revision')
+    (select count(*) from public.orders where status = 'deposito_revision'),
+    (select count(*) from public.topups where status = 'pendiente')
   where public.is_staff();
 $$;
 
@@ -874,6 +1008,10 @@ alter table public.cases         enable row level security;
 alter table public.wallet_ledger enable row level security;
 alter table public.withdrawals   enable row level security;
 alter table public.notifications enable row level security;
+alter table public.topups        enable row level security;
+
+drop policy if exists topups_read on public.topups;
+create policy topups_read on public.topups for select to authenticated using (user_id = auth.uid() or public.is_staff());
 
 drop policy if exists settings_read on public.settings;
 create policy settings_read on public.settings for select to authenticated using (true);
@@ -936,7 +1074,8 @@ grant execute on function public.submit_complaint(text,text,text,text,text,text,
 -- =====================================================================
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('kyc','kyc',false, 5242880, array['image/jpeg','image/png','image/webp']),
-       ('comprobantes','comprobantes',false, 5242880, array['image/jpeg','image/png','image/webp'])
+       ('comprobantes','comprobantes',false, 5242880, array['image/jpeg','image/png','image/webp']),
+       ('recargas','recargas',false, 5242880, array['image/jpeg','image/png','image/webp'])
 on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists kyc_insert on storage.objects;
@@ -945,6 +1084,13 @@ create policy kyc_insert on storage.objects for insert to authenticated
 drop policy if exists kyc_read on storage.objects;
 create policy kyc_read on storage.objects for select to authenticated
   using (bucket_id = 'kyc' and ((storage.foldername(name))[1] = auth.uid()::text or public.is_staff()));
+
+drop policy if exists topup_insert on storage.objects;
+create policy topup_insert on storage.objects for insert to authenticated
+  with check (bucket_id = 'recargas' and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists topup_read on storage.objects;
+create policy topup_read on storage.objects for select to authenticated
+  using (bucket_id = 'recargas' and ((storage.foldername(name))[1] = auth.uid()::text or public.is_staff()));
 
 create or replace function public.can_upload_proof(p_name text)
 returns boolean language sql stable security definer set search_path = public as $$
@@ -976,6 +1122,7 @@ create policy proof_read on storage.objects for select to authenticated
 do $$ begin
   begin alter publication supabase_realtime add table public.notifications; exception when others then null; end;
   begin alter publication supabase_realtime add table public.orders;        exception when others then null; end;
+  begin alter publication supabase_realtime add table public.topups;        exception when others then null; end;
 end $$;
 
 -- pg_cron revisa los relojes cada minuto. Si falla, actívalo en Database > Extensions > pg_cron y vuelve a ejecutar.

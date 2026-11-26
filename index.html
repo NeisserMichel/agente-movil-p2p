@@ -37,7 +37,12 @@ header img{height:38px;width:auto;display:block}
 header nav{display:flex;gap:4px;flex-wrap:wrap}
 header nav a{text-decoration:none;font-weight:700;padding:10px 12px;border-radius:10px;min-height:44px;display:inline-flex;align-items:center}
 header nav a.cta{background:#17150f;color:var(--y)}
-@media(max-width:700px){header nav a:not(.cta){display:none}}
+@media(max-width:700px){header nav a:not(.cta):not(.apkl){display:none}}
+header nav a.apkl{background:var(--gd);color:#fff}
+.topbar{background:#17150f;color:#fff}
+.topbar .in{display:flex;align-items:center;justify-content:center;gap:10px 16px;flex-wrap:wrap;padding-top:10px;padding-bottom:10px;text-align:center}
+.topbar p{margin:0;font-weight:600}.topbar a{display:inline-flex;align-items:center;gap:6px;background:var(--y);color:#17150f;text-decoration:none;font-weight:800;border-radius:12px;padding:0 16px;min-height:44px}
+.topbar svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
 .hero{background:var(--y);color:#17150f;padding:clamp(28px,5vw,64px) 0 clamp(36px,5vw,72px)}
 .hero .in{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:clamp(24px,4vw,56px);align-items:center}
 @media(max-width:880px){.hero .in{grid-template-columns:minmax(0,1fr)}}
@@ -79,19 +84,20 @@ a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(
 </style>
 </head>
 <body>
+<div class="topbar"><div class="in"><p>Agente Móvil P2P para Android: descárgala gratis, sin registrarte.</p><a href="https://github.com/NeisserMichel/agente-movil-p2p/raw/apk-build/agente-movil-p2p.apk" download><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Descargar APK</a></div></div>
 <header><div class="in"><a class="brand" href="#inicio" aria-label="Agente Móvil P2P, inicio"><img src="logo.png" alt=""><span class="p2p" aria-hidden="true">P2P</span></a>
-<nav aria-label="Secciones"><a href="#como">Cómo funciona</a><a href="#seguridad">Seguridad</a><a href="#comision">Comisión</a><a href="#agentes">Ser agente</a><a href="#preguntas">Preguntas</a><a href="https://github.com/NeisserMichel/agente-movil-p2p/raw/apk-build/agente-movil-p2p.apk">Descargar APK</a><a class="cta" href="app/">Abrir la app</a></nav></div></header>
+<nav aria-label="Secciones"><a href="#como">Cómo funciona</a><a href="#seguridad">Seguridad</a><a href="#comision">Comisión</a><a href="#agentes">Ser agente</a><a href="#preguntas">Preguntas</a><a class="apkl" href="https://github.com/NeisserMichel/agente-movil-p2p/raw/apk-build/agente-movil-p2p.apk" download>Descargar APK</a><a class="cta" href="app/">Abrir la app</a></nav></div></header>
 
 <section class="hero" id="inicio"><div class="in">
   <div>
     <h1>Mueve tu dinero entre tus cuentas de cualquier banco o caja</h1>
-    <p>¿Tienes tu sueldo en el BCP y necesitas el dinero en tu Caja Trujillo? Un agente verificado con saldo allí te lo transfiere en minutos. Tu dinero queda en custodia hasta que tú confirmas que llegó.</p>
-    <div class="btns"><a class="btn k" href="app/">Crear mi cuenta</a><a class="btn" href="https://github.com/NeisserMichel/agente-movil-p2p/raw/apk-build/agente-movil-p2p.apk"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Descargar app Android</a><a class="btn o" href="#como">Ver cómo funciona</a></div>
+    <p>¿Tienes tu sueldo en el BCP y necesitas el dinero en tu Caja Trujillo? Recarga tu saldo en Agente Móvil y un agente verificado con saldo allí te lo transfiere en minutos. Tu dinero queda en custodia hasta que tú confirmas que llegó.</p>
+    <div class="btns"><a class="btn" href="https://github.com/NeisserMichel/agente-movil-p2p/raw/apk-build/agente-movil-p2p.apk" download><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Descargar app Android</a><a class="btn k" href="app/">Crear mi cuenta</a><a class="btn o" href="#como">Ver cómo funciona</a></div>
   </div>
   <div class="route" aria-label="Recorrido del dinero">
     <ol>
-      <li><span class="n bl">1</span><div><b>Publicas tu orden</b><span>Monto, cuenta destino a tu nombre y la comisión que ofreces.</span></div></li>
-      <li><span class="n lock">2</span><div><b>Depositas a la custodia</b><span>De tu BCP al BCP de Agente Móvil. Nadie más puede tocar ese dinero.</span></div></li>
+      <li><span class="n lock">1</span><div><b>Recargas tu saldo</b><span>Transfieres a la cuenta de Agente Móvil y, al validarlo, aparece en tu saldo virtual.</span></div></li>
+      <li><span class="n bl">2</span><div><b>Publicas tu orden</b><span>Monto, cuenta destino a tu nombre y la comisión. Se paga con tu saldo y queda en custodia.</span></div></li>
       <li><span class="n bl">3</span><div><b>Un agente te transfiere</b><span>Desde su cuenta en tu entidad de destino, y sube el voucher.</span></div></li>
       <li><span class="n g">4</span><div><b>Confirmas que llegó</b><span>Recién ahí liberamos el dinero al agente.</span></div></li>
     </ol>
@@ -103,10 +109,10 @@ a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(
   <p class="lead">Solo mueves dinero entre cuentas a tu nombre. Así nadie puede usar la plataforma para estafar a terceros.</p>
   <div class="cols">
     <div class="box"><h3>Para ti como cliente</h3><ol>
-      <li>Regístrate con tu DNI y una selfie. Verificamos tu identidad.</li>
-      <li>Registra tus cuentas: la de BCP desde donde depositas y las de destino.</li>
-      <li>Publica cuánto quieres mover y la comisión. La base es 0.2%.</li>
-      <li>Deposita y sube tu constancia. Validamos y publicamos.</li>
+      <li>Regístrate como cliente con tus datos en MAYÚSCULAS, tal como están en tu DNI, y envía tu foto de DNI y una selfie. Verificamos tu identidad.</li>
+      <li>Toca <b>Recargar saldo</b>, transfiere a la cuenta de la empresa y sube tu constancia. Cuando validamos que llegó, el monto aparece en tu saldo virtual.</li>
+      <li>Registra las cuentas a tu nombre donde quieres recibir tu dinero.</li>
+      <li>Publica cuánto quieres mover y la comisión (desde 0.2%). Se descuenta de tu saldo.</li>
       <li>Cuando el agente transfiere, tienes 60 minutos para tocar <b>Ya llegó</b>, <b>Aún no llega</b> o <b>El voucher es falso</b>.</li></ol></div>
     <div class="box"><h3>Si algo falla</h3><ul>
       <li>Si el agente no transfiere en 20 minutos, el dinero vuelve a tu saldo al instante y puedes publicar otra vez con un toque.</li>
@@ -134,14 +140,14 @@ a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(
     <div><label for="c-amt">Monto a mover (S/)</label><input id="c-amt" type="number" min="50" max="5000" step="50" value="3000">
       <label for="c-pct" style="margin-top:18px">Comisión: <span id="c-pctv">0.2%</span></label><input id="c-pct" type="range" min="0.2" max="1" step="0.05" value="0.2">
       <p class="lead" style="font-size:15px">Límite actual: S/ 5,000 por operación.</p></div>
-    <div class="res"><div class="row"><span>Llega a tu cuenta</span><b class="num" id="c-a">S/ 3,000.00</b></div><div class="row"><span>Comisión</span><b class="num" id="c-f">S/ 6.00</b></div><div class="row"><span>Depositas en total</span></div><div class="big num" id="c-t">S/ 3,006.00</div></div>
+    <div class="res"><div class="row"><span>Llega a tu cuenta</span><b class="num" id="c-a">S/ 3,000.00</b></div><div class="row"><span>Comisión</span><b class="num" id="c-f">S/ 6.00</b></div><div class="row"><span>Se descuenta de tu saldo</span></div><div class="big num" id="c-t">S/ 3,006.00</div></div>
   </div>
 </div></section>
 
 <section class="band soft" id="agentes"><div class="in">
   <h2>Gana comisiones como agente</h2>
   <div class="cols">
-    <div class="box"><p style="margin:0">Si tienes saldo en un banco o una caja, transfieres a clientes que necesitan su dinero en esa entidad. Te devolvemos lo que transfieres más el 75% de la comisión en tu saldo, y lo retiras cuando quieras.</p><p style="margin:12px 0 0">Al crear tu cuenta elige <b>Agente</b>. Verás las órdenes publicadas de inmediato y podrás aceptarlas cuando verifiquemos tu identidad.</p><p><a class="btn" href="app/">Quiero ser agente</a></p></div>
+    <div class="box"><p style="margin:0">Si tienes saldo en un banco o una caja, transfieres a clientes que necesitan su dinero en esa entidad. Te devolvemos lo que transfieres más el 75% de la comisión en tu saldo, y lo retiras cuando quieras.</p><p style="margin:12px 0 0">Al crear tu cuenta elige <b>Agente</b>. Verás las órdenes publicadas de inmediato. Para aceptarlas necesitas que verifiquemos tu identidad y poner saldo en <b>garantía</b>: puedes aceptar órdenes de hasta ese monto, y liberarla y retirarla a tus cuentas cuando quieras.</p><p><a class="btn" href="app/">Quiero ser agente</a></p></div>
     <div class="box"><h3>Reglas claras</h3><ul><li>20 minutos para transferir y subir el voucher con su código de operación.</li><li>Si aceptas y no transfieres, sumas un strike. Con 3 pierdes el rol.</li><li>Si el titular de la cuenta destino no coincide, no transfieras: la orden se cancela sin strike.</li><li>Un voucher falso es bloqueo permanente y denuncia.</li></ul></div>
   </div>
 </div></section>
@@ -150,8 +156,11 @@ a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(
   <h2>Preguntas frecuentes</h2>
   <div style="max-width:780px;margin-top:16px">
     <details><summary>¿Puedo enviar dinero a otra persona?</summary><p>No. Solo entre cuentas a tu nombre. Es la regla que protege a todos de estafas.</p></details>
-    <details><summary>¿Por qué tengo que depositar desde BCP?</summary><p>Porque las transferencias entre cuentas BCP son inmediatas y nos permiten verificar que el titular eres tú.</p></details>
+    <details><summary>¿Cómo recargo mi saldo?</summary><p>En la app toca Recargar saldo, transfiere a la cuenta de la empresa desde una cuenta a tu nombre y sube la constancia con el código de operación. Cuando confirmamos que llegó, verás el mismo monto en tu saldo virtual.</p></details>
+    <details><summary>¿Cómo retiro mi dinero?</summary><p>Desde Billetera eliges una de tus cuentas registradas y el monto. Te transferimos y, al confirmar el pago, se descuenta de tu saldo.</p></details>
+    <details><summary>¿Puedo tener más de una cuenta?</summary><p>No. Tu DNI, tu celular y tu correo solo pueden usarse en una cuenta. Escribe tus datos en mayúsculas y tal como están en tu DNI; si no coinciden, no podremos verificarte.</p></details>
     <details><summary>¿Qué pasa si no toco ningún botón en 60 minutos?</summary><p>La operación pasa a revisión. Nuestro equipo verifica el código de operación con la entidad. Si la transferencia existe, se libera al agente y no podrás reclamar; si no existe, te devolvemos todo.</p></details>
+    <details><summary>¿Necesito registrarme para descargar la app?</summary><p>No. Descarga el APK desde el botón de arriba e instálalo. En iPhone, abre la app web en Safari y toca Compartir → Agregar a inicio.</p></details>
     <details><summary>¿Cuánto demora?</summary><p>Depende de que un agente tome tu orden. Subir la comisión la pone más arriba. El agente tiene 20 minutos para transferir una vez que la acepta.</p></details>
     <details><summary>¿Mis fotos y mi DNI están seguros?</summary><p>Se guardan en almacenamiento privado. Solo el equipo de soporte puede verlas, y solo para verificar tu identidad o resolver un reclamo.</p></details>
   </div>
