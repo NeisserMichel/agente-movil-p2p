@@ -49,3 +49,12 @@ jobs:
           cd out && git init -q && git checkout -q -b apk-build && git add .
           git -c user.name=github-actions -c user.email=actions@github.com commit -qm "APK ${{ github.run_number }}"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" apk-build
+      - name: Pedir a las apps instaladas que se actualicen
+        run: |
+          set -e
+          git clone -q --depth 1 "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" principal
+          cd principal
+          printf '{"apk": %s, "url": "https://github.com/%s/raw/apk-build/agente-movil-p2p.apk"}\n' "${{ github.run_number }}" "${{ github.repository }}" > app/version.json
+          git add app/version.json
+          git -c user.name=github-actions -c user.email=actions@github.com commit -qm "APK ${{ github.run_number }}: pedir actualización a las apps instaladas" || exit 0
+          git pull -q --rebase && git push -q origin HEAD:main

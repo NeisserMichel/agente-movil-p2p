@@ -1,7 +1,7 @@
 """Servidor de PRUEBA local: imita lo justo de Supabase (rpc, select, storage) sobre un Postgres local
 para probar la app en el navegador sin internet. No se usa en producción.
 Uso: python3 tests/servidor_prueba.py   ->  http://localhost:8787/app/"""
-import json, os, base64, decimal, datetime, mimetypes, sys
+import json, os, base64, decimal, datetime, mimetypes, sys, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import psycopg2, psycopg2.extras
@@ -18,7 +18,9 @@ def conv(o):
     return str(o)
 
 def as_user(cur, uid):
-    cur.execute("set role authenticated; select set_config('request.jwt.claim.sub', %s, false)", (uid or '',))
+    # En la prueba cada usuario "acaba de entrar con contraseña" (claim amr del JWT de Supabase)
+    claims = json.dumps({'sub': uid or '', 'amr': [{'method': 'password', 'timestamp': int(time.time())}]})
+    cur.execute("set role authenticated; select set_config('request.jwt.claim.sub', %s, false), set_config('request.jwt.claims', %s, false)", (uid or '', claims))
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass

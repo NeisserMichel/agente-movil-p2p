@@ -19,3 +19,9 @@ grant usage on schema storage to authenticated;
 grant select, insert on storage.objects to authenticated;
 grant execute on function storage.foldername(text) to authenticated;
 grant usage on schema public to authenticated, anon;
+create or replace function auth.jwt() returns jsonb language sql stable as
+$$ select coalesce(nullif(current_setting('request.jwt.claims', true),''),'{}')::jsonb $$;
+grant execute on function auth.jwt() to authenticated, anon;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+grant usage on schema extensions to authenticated, anon;

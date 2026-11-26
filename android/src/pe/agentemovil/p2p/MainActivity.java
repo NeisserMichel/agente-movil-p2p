@@ -35,7 +35,11 @@ public class MainActivity extends Activity {
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
         s.setAllowFileAccess(false);
-        s.setUserAgentString(s.getUserAgentString() + " AgenteMovilP2P/1.0");
+        // La app web compara este número con app/version.json y obliga a actualizar si es antiguo
+        int version = 0;
+        try { version = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode; } catch (Exception e) { /* sin versión */ }
+        s.setUserAgentString(s.getUserAgentString() + " AgenteMovilP2P/" + version);
+        s.setCacheMode(WebSettings.LOAD_DEFAULT);
         web.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> cb, FileChooserParams params) {

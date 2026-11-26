@@ -27,7 +27,10 @@ def shot(p, name): p.screenshot(path=f'{OUT}/{name}.png', full_page=True)
 def click(p, text, nth=0): p.get_by_role('button', name=text, exact=True).nth(nth).click(); p.wait_for_timeout(350)
 def tab(p, name): p.locator('.nav button', has_text=name).click(); p.wait_for_timeout(300)
 def stab(p, prefix): p.locator('.stabs button', has_text=prefix).first.click(); p.wait_for_timeout(400)
-def fresh(p): p.reload(); p.wait_for_timeout(800)
+PIN = '482915'
+def enter_pin(p, pin=PIN):
+    p.wait_for_selector('.pin'); p.keyboard.type(pin); p.wait_for_timeout(900)
+def fresh(p): p.reload(); p.wait_for_timeout(800); enter_pin(p)
 
 def register(p, name, dni, phone, dept, email, rol='Cliente', expect_ok=True):
     p.get_by_role('tab', name='Crear cuenta').click(); p.wait_for_timeout(300)
@@ -38,7 +41,12 @@ def register(p, name, dni, phone, dept, email, rol='Cliente', expect_ok=True):
     p.locator('[data-act=eye][data-for=r-pass]').click()
     assert p.get_attribute('#r-pass', 'type') == 'text', 'el ojo debe mostrar la contraseña'
     p.locator('[data-act=register]').click(); p.wait_for_timeout(700)
-    if expect_ok: expect(p.get_by_text('Tu cuenta aún no está verificada.')).to_be_visible()
+    if expect_ok:
+        expect(p.get_by_text('Crea tu clave de internet')).to_be_visible()
+        p.keyboard.type(PIN); p.wait_for_timeout(300)
+        expect(p.get_by_text('Repite tu clave')).to_be_visible()
+        p.keyboard.type(PIN); p.wait_for_timeout(900)
+        expect(p.get_by_text('Tu cuenta aún no está verificada.')).to_be_visible()
 
 def kyc(p):
     click(p, 'Verificar mi identidad')
@@ -60,6 +68,7 @@ with sync_playwright() as pw:
     shot(cli, '01-acceso')
 
     # Registro en mayúsculas, una cuenta por persona, identidad
+    cli.get_by_role('tab', name='Crear cuenta').click(); cli.wait_for_timeout(200); shot(cli, '01a-registro'); cli.get_by_role('tab', name='Ingresar').click()
     register(cli, 'luis chávez ramos', '45871203', '987654321', 'Cajamarca', 'luis@prueba.pe'); shot(cli, '01b-registrado'); kyc(cli)
     register(age, 'carmen huamán torres', '41290578', '912345678', 'Arequipa', 'carmen@prueba.pe', 'Agente'); kyc(age)
     register(nue, 'pedro vargas ruiz', '42223333', '955555555', 'Piura', 'pedro@prueba.pe', 'Agente')
@@ -147,6 +156,33 @@ with sync_playwright() as pw:
     # La app tiene enlaces a la web y a las páginas legales
     tab(cli, 'Cuenta'); expect(cli.get_by_role('link', name='Libro de reclamaciones')).to_be_visible()
 
+    # Clave incorrecta, bloqueo por 5 minutos sin uso y "Olvidé mi clave"
+    cli.reload(); cli.wait_for_timeout(800); cli.keyboard.type('000001'); cli.wait_for_timeout(700)
+    expect(cli.get_by_text('Clave incorrecta. Te quedan 4 intentos.')).to_be_visible(); shot(cli, '14-clave-incorrecta')
+    cli.keyboard.type(PIN); cli.wait_for_timeout(900); expect(cli.locator('.big').first).to_be_visible()
+    ina = br.new_context(**phone).new_page(); ina.on('pageerror', lambda e: errs.append(f'inactividad: {e}'))
+    ina.clock.install(); ina.goto(BASE); ina.wait_for_timeout(500)
+    ina.fill('#l-email', 'luis@prueba.pe'); ina.fill('#l-pass', 'clave-segura-1'); click(ina, 'Ingresar'); ina.wait_for_timeout(600)
+    enter_pin(ina); expect(ina.get_by_text('Hola, LUIS')).to_be_visible()
+    ina.clock.fast_forward('05:20'); ina.wait_for_timeout(600)
+    expect(ina.get_by_text('Por seguridad bloqueamos la app después de 5 minutos sin uso.')).to_be_visible(); shot(ina, '15-bloqueo-inactividad')
+    click(ina, 'Olvidé mi clave'); ina.wait_for_timeout(500)
+    ina.fill('#l-email', 'luis@prueba.pe'); ina.fill('#l-pass', 'clave-segura-1'); click(ina, 'Ingresar'); ina.wait_for_timeout(600)
+    expect(ina.get_by_text('Crea tu nueva clave de internet')).to_be_visible()
+    ina.keyboard.type('739104'); ina.wait_for_timeout(300); ina.keyboard.type('739104'); ina.wait_for_timeout(900)
+    expect(ina.get_by_text('Hola, LUIS')).to_be_visible()
+    cli.reload(); cli.wait_for_timeout(800); enter_pin(cli, '739104'); expect(cli.locator('.big').first).to_be_visible()
+
+    # Actualización obligatoria del APK
+    old = br.new_context(**phone, user_agent='Mozilla/5.0 (Linux; Android 13) AgenteMovilP2P/3').new_page()
+    old.route('**/version.json*', lambda r: r.fulfill(status=200, content_type='application/json', body='{"apk": 7, "url": "https://example.com/agente-movil-p2p.apk"}'))
+    old.goto(BASE); old.wait_for_timeout(600)
+    expect(old.get_by_text('Hay una nueva versión')).to_be_visible()
+    expect(old.get_by_role('link', name='Descargar actualización')).to_have_attribute('href', 'https://example.com/agente-movil-p2p.apk'); shot(old, '16-actualizar-apk')
+    new = br.new_context(**phone, user_agent='Mozilla/5.0 (Linux; Android 13) AgenteMovilP2P/7').new_page()
+    new.route('**/version.json*', lambda r: r.fulfill(status=200, content_type='application/json', body='{"apk": 7, "url": "x"}'))
+    new.goto(BASE); new.wait_for_timeout(600); expect(new.get_by_role('tab', name='Ingresar')).to_be_visible()
+
     # Reclamos y web
     sqlx("set role anon; select public.submit_complaint('reclamo','Rosa Quispe Mamani','45556677','Av. Lima 123','987654321','rosa@x.pe',100,'Transferencia OP-00001','El dinero no llegó a tiempo','Devolución'); reset role;")
     click(adm, 'Actualizar'); stab(adm, 'Reclamos (1)')
@@ -160,6 +196,7 @@ with sync_playwright() as pw:
             if sw > w: errs.append(f'{pg_} se desborda a {w}px: {sw}')
         wp.goto('http://127.0.0.1:8787/index.html'); wp.wait_for_timeout(300)
         assert wp.locator('.topbar a', has_text='Descargar APK').is_visible(), 'botón de descarga visible arriba'
+        assert wp.locator('header a', has_text='Iniciar sesión').is_visible(), 'botón Iniciar sesión visible en la web'
         wp.screenshot(path=f'{OUT}/{n}.png')
     print('Saldos:', sqlx("select full_name, wallet, guarantee, banned from public.profiles order by full_name"))
     br.close()

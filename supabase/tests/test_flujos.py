@@ -1,17 +1,19 @@
 """Pruebas de los flujos de dinero de schema.sql contra un Postgres local.
 Uso: sh supabase/tests/correr.sh"""
-import psycopg2, psycopg2.extras, uuid
+import psycopg2, psycopg2.extras, uuid, time, json
 from decimal import Decimal as D
 psycopg2.extras.register_uuid()
 
 cx = psycopg2.connect(host='/tmp/pg', port=5544, user='postgres', dbname='t')
 cx.autocommit = True
 ok_n = 0
+LOGIN_AGE = [0]   # segundos desde que el usuario entró con contraseña (claim amr del JWT)
 
 def q(sql, args=(), who=None, role='authenticated'):
     cur = cx.cursor()
     if who or role == 'anon':
-        cur.execute(f"set role {role}; select set_config('request.jwt.claim.sub', %s, false)", (str(who or ''),))
+        claims = json.dumps({'sub': str(who or ''), 'amr': [{'method': 'password', 'timestamp': int(time.time()) - LOGIN_AGE[0]}]})
+        cur.execute(f"set role {role}; select set_config('request.jwt.claim.sub', %s, false), set_config('request.jwt.claims', %s, false)", (str(who or ''), claims))
     else:
         cur.execute("reset role; select set_config('request.jwt.claim.sub', '', false)")
     try:
@@ -250,6 +252,36 @@ eq(one("select status from public.withdrawals where id=%s", (wc,)), 'rechazado',
 fails("select public.create_order(%s, 100, 0.2, 'saldo')", (c_ct,), C, 'bloqueada')
 one("select public.staff_settle_banned(%s,'0011223344')", (C,), ADM)
 eq(wal(C), D('0.00'), 'soporte devuelve todo el saldo del cliente bloqueado')
+
+# ---------- clave de internet de 6 dígitos ----------
+eq(one("select public.pin_status()", who=G), 'sin_clave', 'al inicio no tiene clave')
+fails("select public.set_pin('12345')", who=G, contains='6 dígitos')
+fails("select public.set_pin('111111')", who=G, contains='fácil')
+fails("select public.set_pin('123456')", who=G, contains='fácil')
+LOGIN_AGE[0] = 3600
+fails("select public.set_pin('482915')", who=G, contains='correo y contraseña')
+LOGIN_AGE[0] = 0
+one("select public.set_pin('482915')", who=G)
+eq(one("select public.pin_status()", who=G), 'con_clave', 'clave creada')
+eq(len(q("select 1 from information_schema.tables where table_schema='app_private' and table_name='pins'", who=G)), 0, 'la app no puede ver la tabla de claves')
+fails("select * from app_private.pins", who=G, contains='permission denied')
+eq(one("select public.verify_pin('482915')", who=G), 'ok', 'clave correcta')
+eq(one("select public.verify_pin('000001')", who=G), 'incorrecta:4', 'clave incorrecta avisa intentos')
+eq(one("select public.verify_pin('482915')", who=G), 'ok', 'un acierto reinicia los intentos')
+LOGIN_AGE[0] = 3600
+eq(one("select public.set_pin('739104','111111')", who=G), 'incorrecta:4', 'clave actual equivocada cuenta como intento fallido')
+one("select public.set_pin('739104','482915')", who=G)
+eq(one("select public.verify_pin('739104')", who=G), 'ok', 'cambio de clave con la clave actual')
+for i in range(5): one("select public.set_pin('739104','000001')" if i % 2 else "select public.verify_pin('000001')", who=G)
+eq(one("select public.pin_status()", who=G), 'bloqueada', '5 intentos fallidos -> bloqueada')
+eq(one("select public.verify_pin('739104')", who=G), 'bloqueada', 'bloqueada aunque ponga la correcta')
+eq(one("select public.pin_status()", who=G), 'bloqueada', 'estado bloqueada')
+fails("select public.set_pin('555123')", who=G, contains='correo y contraseña')
+LOGIN_AGE[0] = 0
+one("select public.set_pin('555123')", who=G)
+eq(one("select public.verify_pin('555123')", who=G), 'ok', 'tras entrar con contraseña crea una clave nueva y se desbloquea')
+eq(one("select pin_hash like '$2a$%%' from app_private.pins where user_id=%s", (G,)), True, 'la clave se guarda cifrada')
+fails("select public.verify_pin('555123')", role='anon', contains='permission denied')
 
 # ---------- visitante sin cuenta (anon) ----------
 code = q("select public.submit_complaint('reclamo','Rosa Quispe Mamani','45556677','Av. Lima 123','987654321','rosa@x.pe',100,'Transferencia OP-00001','El dinero no llegó a tiempo','Devolución')", role='anon')[0][0]

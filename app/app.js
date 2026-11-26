@@ -521,6 +521,7 @@ function vAccount() {
     <a class="it" href="../privacidad.html"><b>Política de privacidad</b><span>→</span></a>
     <a class="it" href="../libro-reclamaciones.html"><b>Libro de reclamaciones</b><span>→</span></a>
   </div></div>
+  <button class="btn o" data-act="changepin">Cambiar mi clave de internet</button>
   <button class="btn o" data-act="logout">Cerrar sesión</button>`;
 }
 function vNotes() {
@@ -611,8 +612,70 @@ function sheet() {
     <button class="btn ${s.danger ? 'r' : ''}" data-act="confirmyes">${esc(s.yes)}</button><button class="btn o" data-act="close">Volver</button></div></div>`;
   return '';
 }
+/* ======================= CLAVE DE INTERNET (6 dígitos) ======================= */
+const LOCK_MS = 5 * 60 * 1000;
+function vLock() {
+  const p = S.pin, m = p.mode;
+  const t = { enter: ['Ingresa tu clave de internet', 'Tus 6 dígitos para entrar a Agente Móvil P2P.'],
+    create: [S.resetPin ? 'Crea tu nueva clave de internet' : 'Crea tu clave de internet', 'Elige 6 dígitos. La pediremos cada vez que entres y después de 5 minutos sin uso.'],
+    confirm: ['Repite tu clave', 'Escríbela otra vez para confirmar.'],
+    old: ['Ingresa tu clave actual', 'Para cambiarla, primero confirma la que usas hoy.'],
+    new2: ['Elige tu nueva clave', '6 dígitos que no sean fáciles de adivinar.'],
+    confirm2: ['Repite tu nueva clave', 'Escríbela otra vez para confirmar.'] }[m];
+  return `<div class="pin" role="dialog" aria-modal="true" aria-labelledby="pin-h"><div class="pinbox">
+  ${brand()}<h1 id="pin-h">${t[0]}</h1><p>${t[1]}</p>
+  <div class="dots" aria-label="${p.buf.length} de 6 dígitos">${[0,1,2,3,4,5].map(i => `<i class="${i < p.buf.length ? 'on' : ''}"></i>`).join('')}</div>
+  <p class="perr" role="alert">${esc(p.err || '')}</p>
+  <div class="keys">${[1,2,3,4,5,6,7,8,9].map(n => `<button data-act="pk" data-v="${n}" ${p.busy ? 'disabled' : ''}>${n}</button>`).join('')}
+  <span></span><button data-act="pk" data-v="0" ${p.busy ? 'disabled' : ''}>0</button><button data-act="pkdel" aria-label="Borrar">⌫</button></div>
+  <div class="pinlinks">${p.change ? `<button data-act="pkcancel">Cancelar</button>` : `<button data-act="pkforgot">Olvidé mi clave</button><button data-act="logout">Cerrar sesión</button>`}</div>
+  </div></div>`;
+}
+function vUpdate() {
+  const u = S.update;
+  return `<div class="pin"><div class="pinbox">${brand()}
+  <h1>Hay una nueva versión</h1>
+  <p>Para seguir usando Agente Móvil P2P debes instalar la actualización.</p>
+  <a class="btn" style="margin-top:18px" href="${esc(u.url)}">Descargar actualización</a>
+  <ol class="steps"><li>Toca el botón y espera la descarga.</li><li>Abre el archivo descargado y toca <b>Instalar</b>.</li><li>Si el celular dice "App no instalada", desinstala primero Agente Móvil P2P y vuelve a instalar. No pierdes tu saldo: todo está guardado en tu cuenta.</li></ol>
+  </div></div>`;
+}
+function lock(reason) {
+  if (!S.user || S.locked) return;
+  S.locked = true; S.sheet = null; S.pin = { mode: 'enter', buf: '', err: reason || '' }; render();
+}
+async function pinDone() {
+  const p = S.pin, v = p.buf;
+  if (p.mode === 'create' || p.mode === 'new2') { S.pin = { ...p, mode: p.mode === 'create' ? 'confirm' : 'confirm2', first: v, buf: '', err: '' }; return render(); }
+  if (p.mode === 'old') { S.pin = { ...p, mode: 'new2', old: v, buf: '', err: '' }; return render(); }
+  if ((p.mode === 'confirm' || p.mode === 'confirm2') && v !== p.first) { S.pin = { ...p, mode: p.mode === 'confirm' ? 'create' : 'new2', buf: '', first: '', err: 'Las claves no coinciden. Inténtalo de nuevo.' }; return render(); }
+  S.pin.busy = true; render();
+  try {
+    let r;
+    if (p.mode === 'enter') r = await api.rpc('verify_pin', { p_pin: v });
+    else r = await api.rpc('set_pin', p.mode === 'confirm2' ? { p_new: v, p_old: p.old } : { p_new: v });
+    if (r === 'ok') {
+      const wasChange = p.change; S.locked = false; S.resetPin = false; try { sessionStorage.removeItem('amp_reset_pin'); } catch {}
+      lastAct = Date.now();
+      if (wasChange) { render(); toast('Tu clave de internet se cambió.'); } else await afterUnlock();
+      return;
+    }
+    if (r === 'sin_clave') { S.pin = { mode: 'create', buf: '' }; return render(); }
+    if (r === 'bloqueada') { S.pin = { mode: 'enter', buf: '', err: 'Clave bloqueada por 15 minutos por intentos fallidos. Usa "Olvidé mi clave" para crear una nueva con tu correo y contraseña.' }; return render(); }
+    const left = String(r).split(':')[1];
+    S.pin = { ...p, mode: p.mode === 'confirm2' ? 'old' : p.mode, buf: '', first: '', busy: false, err: `Clave incorrecta. Te quedan ${left} ${left === '1' ? 'intento' : 'intentos'}.` };
+    render();
+  } catch (e) {
+    const m = msg(e);
+    if (/correo y contraseña/.test(m)) { await api.signOut(); S.user = null; S.locked = false; S.auth = 'login'; render(); toast(m); return; }
+    S.pin = { ...p, mode: p.mode === 'confirm' ? 'create' : p.mode === 'confirm2' ? 'new2' : p.mode, buf: '', busy: false, err: m }; render();
+  }
+}
+
 function render() {
   const app = $('#app');
+  if (S.update) { app.innerHTML = vUpdate(); return; }
+  if (S.user && S.locked && S.auth !== 'newpass') { app.innerHTML = vLock(); return; }
   const y = window.scrollY;
   const f = document.activeElement?.id;
   document.body.classList.toggle('wide', !!(S.user && S.tab === 'staff'));
@@ -641,6 +704,11 @@ function render() {
 /* ======================= ACCIONES ======================= */
 const A = {
   auth: d => { S.auth = d.v; render(); },
+  pk: d => { const p = S.pin; if (p.busy || p.buf.length >= 6) return; p.buf += d.v; p.err = ''; render(); if (p.buf.length === 6) pinDone(); },
+  pkdel: () => { const p = S.pin; if (p.busy) return; p.buf = p.buf.slice(0, -1); render(); },
+  pkcancel: () => { S.locked = false; S.pin = null; render(); },
+  async pkforgot() { try { sessionStorage.setItem('amp_reset_pin', '1'); } catch {} S.resetPin = true; await api.signOut(); S.user = null; S.locked = false; S.me = null; S.auth = 'login'; render(); toast('Ingresa con tu correo y contraseña para crear una nueva clave de internet.'); },
+  changepin: () => { S.locked = true; S.pin = { mode: 'old', buf: '', change: true }; render(); },
   regrole: d => { S.regRole = d.v; render(); },
   eye: (d, b) => { const i = $('#' + d.for); if (!i) return; const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.setAttribute('aria-pressed', show); b.setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña'); b.innerHTML = ic(show ? 'eyeoff' : 'eye'); },
   topup: () => { if (!verified()) { S.view = { k: 'kyc' }; render(); toast('Primero verificamos tu identidad para que puedas recargar.'); return; } S.view = { k: 'topup' }; render(); window.scrollTo(0, 0); },
@@ -751,23 +819,57 @@ document.addEventListener('change', e => {
   const t = e.target, d = S.draft; if (!d) return;
   if (t.id === 'd-acc') d.acc = +t.value;
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.sheet) { S.sheet = null; render(); } });
+document.addEventListener('keydown', e => {
+  if (S.user && S.locked && S.pin && !S.update) {
+    if (/^\d$/.test(e.key)) { e.preventDefault(); A.pk({ v: e.key }); } else if (e.key === 'Backspace') { e.preventDefault(); A.pkdel(); }
+    return;
+  }
+  if (e.key === 'Escape' && S.sheet) { S.sheet = null; render(); }
+});
+/* Inactividad: a los 5 minutos sin uso se bloquea y pide la clave */
+let lastAct = Date.now();
+for (const ev of ['pointerdown', 'keydown', 'touchstart', 'scroll', 'input']) addEventListener(ev, () => { lastAct = Date.now(); }, { passive: true, capture: true });
+setInterval(() => { if (S.user && S.me && !S.locked && Date.now() - lastAct > LOCK_MS) lock('Por seguridad bloqueamos la app después de 5 minutos sin uso.'); }, 10000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && S.user && !S.locked && Date.now() - lastAct > LOCK_MS) lock('Por seguridad bloqueamos la app después de 5 minutos sin uso.'); });
 
 /* ======================= ARRANQUE ======================= */
 let stopListen = null;
 async function start() {
   S.user = await api.session();
   if (!S.user) { render(); return; }
+  try { if (sessionStorage.getItem('amp_reset_pin')) S.resetPin = true; } catch {}
+  const st = await api.rpc('pin_status');
+  S.locked = true;
+  if (st === 'sin_clave' || S.resetPin) S.pin = { mode: 'create', buf: '' };
+  else if (st === 'bloqueada') S.pin = { mode: 'enter', buf: '', err: 'Clave bloqueada por 15 minutos por intentos fallidos. Usa "Olvidé mi clave" para crear una nueva con tu correo y contraseña.' };
+  else S.pin = { mode: 'enter', buf: '' };
+  render();
+}
+async function afterUnlock() {
+  render();
   await loadAll();
-  if (!S.me) { render(); setTimeout(start, 1500); return; }
+  if (!S.me) { setTimeout(afterUnlock, 1500); return; }
   render();
   stopListen?.();
   stopListen = api.listen(S.user.id, n => {
-    if (n) { toast(n.title + (n.body ? ': ' + n.body : '')); try { if (document.hidden && Notification.permission === 'granted') new Notification(n.title, { body: n.body || '', icon: 'icon-192.png' }); } catch {} }
+    if (n && !S.locked) { toast(n.title + (n.body ? ': ' + n.body : '')); try { if (document.hidden && Notification.permission === 'granted') new Notification(n.title, { body: n.body || '', icon: 'icon-192.png' }); } catch {} }
     clearTimeout(start.t); start.t = setTimeout(() => { if (!S.sheet && !document.activeElement?.matches('input,select,textarea')) refresh(); }, 400);
   });
 }
+/* Si la app Android es más antigua que la última versión publicada, obliga a actualizar */
+async function checkUpdate() {
+  const m = navigator.userAgent.match(/AgenteMovilP2P\/([\d.]+)/); if (!m) return false;
+  const mine = m[1].includes('.') ? 0 : +m[1];
+  try {
+    const v = await (await fetch('version.json?t=' + Date.now(), { cache: 'no-store' })).json();
+    if (+v.apk > 0 && mine < +v.apk) { S.update = v; render(); return true; }
+  } catch {}
+  return false;
+}
 async function boot() {
+  if (location.hash === '#registro') S.auth = 'register';
+  if (await checkUpdate()) return;
+  setInterval(checkUpdate, 10 * 60 * 1000);
   if (!window.AMP_TEST_API && (!C.SUPABASE_URL || !C.SUPABASE_ANON_KEY)) {
     $('#app').innerHTML = `<div class="wrap"><div class="card"><h1>Falta conectar Supabase</h1><p>Abre <b>app/config.js</b> y pega la Project URL y la clave pública de tu proyecto. Los pasos están en el archivo LEEME.md.</p></div></div>`;
     return;
@@ -776,7 +878,7 @@ async function boot() {
   api.onRecovery?.(() => { S.auth = 'newpass'; render(); });
   await start().catch(e => { $('#app').innerHTML = `<div class="wrap"><div class="card"><h1>Algo salió mal</h1><p>${esc(msg(e))}</p><button class="btn" onclick="location.reload()">Reintentar</button></div></div>`; });
   setInterval(updClocks, 1000);
-  setInterval(async () => { if (!S.me || document.hidden) return; try { const n = await api.rpc('tick'); if (n) await refresh(); } catch {} }, 30000);
+  setInterval(async () => { if (!S.me || S.locked || document.hidden) return; try { const n = await api.rpc('tick'); if (n) await refresh(); } catch {} }, 30000);
   if ('serviceWorker' in navigator && !window.AMP_TEST_API) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 boot();

@@ -1,5 +1,5 @@
 // Service worker: permite instalar la app y abrirla rápido. Los datos de Supabase siempre van en vivo.
-const CACHE = 'amp2p-v4';
+const CACHE = 'amp2p-v5';
 const FILES = ['./', 'index.html', 'app.js', 'config.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'logo.png'];
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())));
 self.addEventListener('activate', e => e.waitUntil(caches.keys().then(k => Promise.all(k.filter(x => x !== CACHE).map(x => caches.delete(x)))).then(() => self.clients.claim())));

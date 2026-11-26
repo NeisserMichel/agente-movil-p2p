@@ -940,6 +940,85 @@ $$;
 
 
 -- ---------------------------------------------------------------------
+-- 9a. CLAVE DE INTERNET DE 6 DÍGITOS
+--   Se guarda cifrada (bcrypt) en un esquema privado que la app no puede leer.
+--   5 intentos fallidos = bloqueo de 15 minutos. Crear o recuperar la clave
+--   exige haber entrado con correo y contraseña hace poco (30 minutos).
+-- ---------------------------------------------------------------------
+create extension if not exists pgcrypto with schema extensions;
+create table if not exists app_private.pins (
+  user_id      uuid primary key references auth.users(id) on delete cascade,
+  pin_hash     text not null,
+  fails        int not null default 0,
+  locked_until timestamptz,
+  updated_at   timestamptz not null default now()
+);
+
+-- ¿Entró con correo y contraseña (u otro método explícito) en los últimos p_secs segundos?
+create or replace function app_private.fresh_login(p_secs int) returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select max((x->>'timestamp')::bigint)
+                     from jsonb_array_elements(coalesce(auth.jwt()->'amr', '[]'::jsonb)) x), 0)
+         > extract(epoch from now()) - p_secs;
+$$;
+
+create or replace function public.pin_status() returns text
+language plpgsql stable security definer set search_path = public as $$
+declare r app_private.pins;
+begin
+  if auth.uid() is null then raise exception 'Inicia sesión para continuar.'; end if;
+  select * into r from app_private.pins where user_id = auth.uid();
+  if r.user_id is null then return 'sin_clave'; end if;
+  if r.locked_until > now() then return 'bloqueada'; end if;
+  return 'con_clave';
+end $$;
+
+-- Devuelve 'ok', 'incorrecta:N' (si la clave actual no coincide; cuenta como intento fallido) o 'bloqueada'
+drop function if exists public.set_pin(text, text);
+create or replace function public.set_pin(p_new text, p_old text default null) returns text
+language plpgsql security definer set search_path = public as $$
+declare r app_private.pins; left_ int;
+begin
+  if auth.uid() is null then raise exception 'Inicia sesión para continuar.'; end if;
+  if coalesce(p_new,'') !~ '^\d{6}$' then raise exception 'La clave debe tener 6 dígitos.'; end if;
+  if p_new ~ '^(\d)\1{5}$' or p_new in ('123456','234567','345678','456789','012345','654321','543210','987654','876543','765432','121212','112233')
+    then raise exception 'Esa clave es muy fácil de adivinar. Elige otra.'; end if;
+  select * into r from app_private.pins where user_id = auth.uid() for update;
+  if r.user_id is not null and p_old is not null then
+    if r.locked_until > now() then return 'bloqueada'; end if;
+    if extensions.crypt(p_old, r.pin_hash) <> r.pin_hash then
+      update app_private.pins set fails = fails + 1, locked_until = case when fails + 1 >= 5 then now() + interval '15 minutes' end
+       where user_id = auth.uid() returning 5 - fails into left_;
+      return case when left_ <= 0 then 'bloqueada' else 'incorrecta:' || left_ end;
+    end if;
+  elsif not app_private.fresh_login(1800) then
+    raise exception 'Por seguridad, vuelve a ingresar con tu correo y contraseña para crear tu clave.';
+  end if;
+  insert into app_private.pins (user_id, pin_hash) values (auth.uid(), extensions.crypt(p_new, extensions.gen_salt('bf', 8)))
+  on conflict (user_id) do update set pin_hash = excluded.pin_hash, fails = 0, locked_until = null, updated_at = now();
+  return 'ok';
+end $$;
+
+-- Devuelve 'ok', 'incorrecta:N' (intentos que quedan), 'bloqueada' o 'sin_clave'
+create or replace function public.verify_pin(p_pin text) returns text
+language plpgsql security definer set search_path = public as $$
+declare r app_private.pins; left_ int;
+begin
+  if auth.uid() is null then raise exception 'Inicia sesión para continuar.'; end if;
+  select * into r from app_private.pins where user_id = auth.uid() for update;
+  if r.user_id is null then return 'sin_clave'; end if;
+  if r.locked_until > now() then return 'bloqueada'; end if;
+  if coalesce(p_pin,'') ~ '^\d{6}$' and extensions.crypt(p_pin, r.pin_hash) = r.pin_hash then
+    update app_private.pins set fails = 0, locked_until = null where user_id = auth.uid();
+    return 'ok';
+  end if;
+  update app_private.pins set fails = fails + 1, locked_until = case when fails + 1 >= 5 then now() + interval '15 minutes' end
+   where user_id = auth.uid() returning 5 - fails into left_;
+  if left_ <= 0 then return 'bloqueada'; end if;
+  return 'incorrecta:' || left_;
+end $$;
+
+-- ---------------------------------------------------------------------
 -- 9b. LIBRO DE RECLAMACIONES VIRTUAL (obligatorio si tienes web)
 -- ---------------------------------------------------------------------
 create table if not exists public.complaints (

@@ -8,7 +8,7 @@ Plataforma donde los clientes mueven **su propio dinero** entre sus cuentas de d
 | `app/` | La app para clientes, agentes y soporte. Se instala en el celular (PWA) |
 | `app/config.js` | **Tus datos de Supabase** (URL y clave pública) |
 | `supabase/schema.sql` | La base de datos completa: tablas, reglas de dinero, seguridad y archivos privados |
-| `supabase/tests/` | Pruebas automáticas de todos los flujos de dinero (89 comprobaciones) |
+| `supabase/tests/` | Pruebas automáticas de todos los flujos de dinero (109 comprobaciones) |
 | `android/` | App Android (abre la app web y permite subir fotos) |
 | `terminos.html`, `privacidad.html` | **Borradores** legales para revisar con un abogado |
 | `libro-reclamaciones.html` | Libro de Reclamaciones virtual, conectado a la base de datos |
@@ -70,12 +70,14 @@ Vuelve a pegar TODO `supabase/schema.sql` en **SQL Editor → New query → Run*
 ### 8. App Android (opcional)
 1. En GitHub: **Actions → Compilar APK → Run workflow**.
 2. Al terminar, el APK queda en la rama `apk-build` (`agente-movil-p2p.apk`).
-3. Para que las actualizaciones se instalen sin desinstalar, crea una llave de firma fija y guárdala como secretos del repo (`ANDROID_KEYSTORE_B64` y `ANDROID_KEYSTORE_PASS`). Pídemelo y te guío.
+3. Para que las actualizaciones se instalen encima de la versión anterior, guarda la llave de firma como secretos del repo: **Settings → Secrets and variables → Actions → New repository secret**, con los nombres `ANDROID_KEYSTORE_PASS` y `ANDROID_KEYSTORE_B64`. Luego vuelve a correr **Actions → Compilar APK**.
+4. **Actualización obligatoria:** cada vez que se compila un APK nuevo, GitHub actualiza `app/version.json` y las apps instaladas más antiguas muestran una pantalla que obliga a descargar la nueva versión. Los cambios de la web y de la app (pantallas, reglas) llegan solos, sin reinstalar.
 
 ---
 
 ## Cómo funciona por dentro
 
+- **Clave de internet de 6 dígitos.** La primera vez en cada dispositivo se entra con correo y contraseña y se crea la clave; luego se pide la clave cada vez que se abre la app o la web, y otra vez tras 5 minutos sin uso. 5 intentos fallidos la bloquean 15 minutos; "Olvidé mi clave" pide correo y contraseña para crear una nueva. La clave se guarda cifrada en un esquema privado.
 - **Recargas y saldo virtual.** El usuario toca *Recargar saldo*, transfiere a la cuenta de la empresa y sube la constancia. Soporte lo valida en **Soporte → Recargas** y el mismo monto aparece en su saldo virtual. Las órdenes se pagan con ese saldo.
 - **Retiros.** El usuario pide el retiro a una cuenta suya registrada; el monto queda reservado. Soporte transfiere y lo marca como pagado en **Soporte → Retiros**: en ese momento se descuenta del saldo.
 - **Garantía del agente.** El agente pasa saldo a garantía y solo puede aceptar órdenes de hasta ese monto. Puede liberarla a su saldo cuando no tiene órdenes en curso.
@@ -92,4 +94,4 @@ Vuelve a pegar TODO `supabase/schema.sql` en **SQL Editor → New query → Run*
 Salidas: `reembolsada` (el agente no transfirió, voucher falso o titular no coincide), `revision` (soporte decide), `cancelada`. Los estados `deposito_pendiente`, `deposito_revision` y `rechazada` solo quedan para órdenes antiguas.
 
 ## Probar en tu computadora (para desarrolladores)
-Requiere PostgreSQL 16 y Python 3: `sh supabase/tests/correr.sh` corre los 89 casos de dinero. GitHub también los corre solo en cada cambio de `supabase/` (Actions → Pruebas de la base de datos).
+Requiere PostgreSQL 16 y Python 3: `sh supabase/tests/correr.sh` corre los 109 casos de dinero. GitHub también los corre solo en cada cambio de `supabase/` (Actions → Pruebas de la base de datos).
