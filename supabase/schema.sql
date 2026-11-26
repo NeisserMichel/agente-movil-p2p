@@ -953,6 +953,8 @@ create table if not exists app_private.pins (
   locked_until timestamptz,
   updated_at   timestamptz not null default now()
 );
+-- Protección extra: sin políticas, nadie la lee desde la app; solo las funciones de abajo
+alter table app_private.pins enable row level security;
 
 -- ¿Entró con correo y contraseña (u otro método explícito) en los últimos p_secs segundos?
 create or replace function app_private.fresh_login(p_secs int) returns boolean
