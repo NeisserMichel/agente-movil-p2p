@@ -13,7 +13,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
-/** Agente Móvil P2P: abre la app web dentro de una app Android, con subida de fotos y capturas. */
+/** Agente Móvil P2P: abre la app web dentro de una app Android, con subida de fotos y capturas. Firmada con la llave permanente. */
 public class MainActivity extends Activity {
     // Si publicas en otro dominio, cambia HOST y BASE (ver LEEME.md).
     static final String HOST = "neissermichel.github.io";
